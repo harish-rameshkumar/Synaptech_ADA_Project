@@ -33,12 +33,12 @@ tmdb_enrich(imdb_title_ids, "data/raw/tmdb_matches.csv")
 
 ```bash
 cinema-mobility resolve-labels [--end-year Y]      # T1 TMDB, T2 Wikidata; cached in data/raw/label_cache.sqlite, resumable
-cinema-mobility build-credits [--end-year Y]       # data/processed/credits.parquet (left join)
-cinema-mobility quality-report [--end-year Y]      # results/data_quality.csv + data/raw/language_labels_review.csv
+cinema-mobility build-credits [--end-year 2024] [--focal-languages hi,ta,te,ml,kn]       # data/processed/credits.parquet (left join)
+cinema-mobility quality-report [--end-year 2024]      # results/data_quality.csv + data/raw/language_labels_review.csv
 cinema-mobility make-sample                        # data/processed/credits_sample.parquet (~5,000 credits)
 ```
 
-- `credits.parquet` keeps titles labeled hi/ta/te/ml/kn (T1/T2) **and** candidate titles whose language is unknown (`language` null, `label_source = unknown`). Unknown titles are collaboration ties only: they never count toward language events, source-language eligibility or the 70% share rule. Titles resolved to other languages and titles never sent to TMDB (no IN-region or target-language aka) are dropped; a 2,000-title recall check found 0.05% target-language titles outside the candidate rule.
+- `credits.parquet` keeps (a) titles labeled with a focal language, (b) titles resolved to **other** languages, kept with their label so the source-share denominator and other-language features are correct, and (c) candidate titles whose language is unknown (`language` null, `label_source = unknown`). Unknown titles are collaboration ties only: they never create language events and, by default, are excluded from the 70% share denominator (`qualifying_years(..., count_unknown=True)` and the report's `eligibility_sensitivity` section show the effect of counting them). Only the **focal languages** (`--focal-languages`, default hi,ta,te,ml,kn) can be sources or destinations in risk sets and the pair screen; other resolved languages never are. Titles never sent to TMDB (no IN-region or focal-language aka) and titles after `--end-year` (we use 2024) are dropped; a 2,000-title recall check found 0.05% target-language titles outside the candidate rule.
 - `results/data_quality.csv` is a long table (`section`, `key1`, `key2`, counts, `share`, `note`) with titles dropped per stage, match rate per tier overall / by language / by year, unknown concentration flags, per-tier actor and tie contribution, merged/orphan ID evidence and graph connectivity.
 - `language_labels_review.csv` lists likely dubbed or ambiguous kept titles, ranked by ties lost if the title were dropped, then actors; fill `is_dubbed` / `is_ambiguous` and the pipeline's `load_credits` honours them once merged back onto the credits.
 - The sample is built from whole title casts around eligible actors so ties survive. It holds ids, years, billing and labels only. IMDb data remains subject to IMDb's non-commercial license, so share it only within the project team.
