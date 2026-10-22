@@ -91,3 +91,70 @@ def test_wikidata_focal_ignores_non_focal_second_languages(tmp_path):
     t = rules.rules_table(*_inputs(ids), cache_db=db).set_index("title_id")
     assert t.rule_wikidata.all()                                   # plain rule: any two languages
     assert t.rule_wikidata_focal.to_dict() == {"en_second": False, "two_focal": True, "three_noise": False}
+
+
+# --------------------------------------------------------------------------- a2: TMDB spoken AND Wikipedia infobox
+def _wiki_cache(tmp_path, spoken, wiki):
+    ids = list(spoken)
+    db = _cache(tmp_path, {i: ("te", spoken[i]) for i in ids}, {i: ["te"] for i in ids})
+    con = sqlite3.connect(db)
+    for t, (status, langs) in wiki.items():
+        con.execute("INSERT INTO wikipedia_id VALUES (?,?,?,?)", (t, status, "P" if status == "matched" else None, json.dumps(langs)))
+    con.commit()
+    con.close()
+    return db, ids
+
+
+def test_a2_needs_both_tmdb_and_wikipedia_to_list_two_focal_languages(tmp_path):
+    spoken = {"both": ["te", "ta"], "wiki_single": ["te", "ta"], "no_article": ["te", "hi"], "spoken_single": ["te"]}
+    db, ids = _wiki_cache(tmp_path, spoken, {"both": ("matched", ["te", "ta"]), "wiki_single": ("matched", ["te"]),
+                                             "no_article": ("no_article", [])})
+    t = rules.rules_table(*_inputs(ids), cache_db=db).set_index("title_id")
+    assert t.rule_spoken.to_dict() == {"both": True, "wiki_single": True, "no_article": True, "spoken_single": False}
+    assert t.rule_spoken_wiki.to_dict() == {"both": True, "wiki_single": False, "no_article": False, "spoken_single": False}
+    assert rules.flagged_titles(t.reset_index(), ("spoken_wiki",)) == {"both"}
+    assert rules.parse_rules("a2,bf,c") == rules.PRIMARY_V2
+
+
+def test_a2_refuses_titles_that_were_never_looked_up_on_wikipedia(tmp_path):
+    db, ids = _wiki_cache(tmp_path, {"x": ["te", "ta"]}, {})
+    t = rules.rules_table(*_inputs(ids), cache_db=db)
+    assert rules.flagged_titles(t, ("spoken",)) == {"x"}              # other rules do not need Wikipedia
+    with pytest.raises(RuntimeError, match="rules-fetch --wikipedia"):
+        rules.flagged_titles(t, ("spoken_wiki",))
+
+
+class FakeNet:
+    """Stands in for prefill.Net: answers by cache key."""
+
+    def __init__(self, links, leads, errors=()):
+        self.links, self.leads, self.errors = links, leads, set(errors)
+
+    def get(self, host, key, url, params, deadline):
+        if key.startswith("wext:"):
+            t = key[5:]
+            if t in self.errors:
+                return {"_error": "throttled"}
+            return {"query": {"exturlusage": [{"title": p} for p in self.links.get(t, [])]}}
+        page = key[len("wlead:"):]
+        text = self.leads[page]
+        return {"query": {"pages": [{"title": page, "revisions": [{"slots": {"main": {"content": text}}}]}]}}
+
+
+def test_fetch_wikipedia_languages_stores_matches_and_retries_errors(tmp_path):
+    db = str(tmp_path / "w.sqlite")
+    lead = "{{Infobox film\n| name = F\n| language = [[Telugu language|Telugu]], [[Tamil language|Tamil]]\n| released = 2020\n}}"
+    net = FakeNet({"tt1": ["F"], "tt2": [], "tt3": ["G"]}, {"F": lead, "G": lead}, errors={"tt3"})
+    rules.fetch_wikipedia_languages(["tt1", "tt2", "tt3"], cache_db=db, net=net)
+    rows = dict((r[0], r[1:]) for r in sqlite3.connect(db).execute("SELECT imdb_id, status, page, langs_json FROM wikipedia_id"))
+    assert rows["tt1"] == ("matched", "F", '["ta", "te"]') and rows["tt2"][0] == "no_article"
+    assert "tt3" not in rows                                            # error: nothing stored, retried next run
+    net.errors.clear()
+    rules.fetch_wikipedia_languages(["tt1", "tt2", "tt3"], cache_db=db, net=net)
+    assert sqlite3.connect(db).execute("SELECT status FROM wikipedia_id WHERE imdb_id='tt3'").fetchone()[0] == "matched"
+
+
+def test_fetch_wikipedia_languages_stops_after_consecutive_failures(tmp_path):
+    net = FakeNet({}, {}, errors={f"tt{i}" for i in range(10)})
+    with pytest.raises(rules.TooManyFailures):
+        rules.fetch_wikipedia_languages([f"tt{i}" for i in range(10)], cache_db=str(tmp_path / "w.sqlite"), net=net, max_consecutive_failures=3)

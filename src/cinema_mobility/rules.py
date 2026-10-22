@@ -3,6 +3,8 @@
 Rules (a title is flagged if any ACTIVE rule fires):
   spoken    TMDB spoken_languages contains two or more focal languages (hi, ta, te, ml, kn)
   wikidata  Wikidata lists two or more original languages (P364) for the title
+  spoken_wiki (a2)  rule `spoken` AND the English Wikipedia film infobox (article found via its IMDb link) also lists two or
+            or more focal languages; no IMDb-matched article means not flagged
   wikidata_focal  Wikidata lists two or more FOCAL languages (hi, ta, te, ml, kn) as original languages; en and
             other non-focal languages are ignored (the stricter, less noisy version of `wikidata`)
   disagree  TMDB original_language is missing from Wikidata's original languages (both present)
@@ -22,10 +24,11 @@ from .pipeline import qualifying_years, select_pairs
 import os
 
 FOCAL = ("hi", "ta", "te", "ml", "kn")
-RULES = ("spoken", "wikidata", "wikidata_focal", "disagree")
-ALIASES = {"a": "spoken", "b": "wikidata", "bf": "wikidata_focal", "b-focal": "wikidata_focal", "b_focal": "wikidata_focal",
-           "c": "disagree", **{r: r for r in RULES}}
-PRIMARY = ("spoken", "wikidata_focal", "disagree")  # the rule set behind credits_final
+RULES = ("spoken", "spoken_wiki", "wikidata", "wikidata_focal", "disagree")
+ALIASES = {"a": "spoken", "a2": "spoken_wiki", "b": "wikidata", "bf": "wikidata_focal", "b-focal": "wikidata_focal",
+           "b_focal": "wikidata_focal", "c": "disagree", **{r: r for r in RULES}}
+PRIMARY = ("spoken", "wikidata_focal", "disagree")        # the rule set behind credits_final
+PRIMARY_V2 = ("spoken_wiki", "wikidata_focal", "disagree")  # the rule set behind credits_final_v2
 SOURCE_LABEL = "rule_ambiguous"
 
 
@@ -46,6 +49,7 @@ def _tables(con):
     con.execute("CREATE TABLE IF NOT EXISTS tmdb_detail (imdb_id TEXT PRIMARY KEY, tmdb_id TEXT, media TEXT, "
                 "original_language TEXT, spoken_json TEXT, status TEXT)")
     con.execute("CREATE TABLE IF NOT EXISTS wikidata_all (imdb_id TEXT PRIMARY KEY, qids_json TEXT, langs_json TEXT, status TEXT)")
+    con.execute("CREATE TABLE IF NOT EXISTS wikipedia_id (imdb_id TEXT PRIMARY KEY, status TEXT, page TEXT, langs_json TEXT)")
 
 
 # --------------------------------------------------------------------------- fetching (cached, resumable)
@@ -164,7 +168,51 @@ def fetch_wikidata_languages(ids, cache_db=CACHE_DB, batch=100, interval=1.0, ma
     con.close()
 
 
-def fetch_rule_data(status: pd.DataFrame, labels: pd.DataFrame, title_ids=None, cache_db=CACHE_DB, tmdb_interval=0.05):
+def fetch_wikipedia_languages(ids, cache_db=CACHE_DB, net=None, max_consecutive_failures=5, log=print):
+    """Film-infobox language(s) of the English Wikipedia article that links to each IMDb title (ID match only).
+
+    Uses the prefill HTTP cache (so earlier lookups are free) and its polite rate limit with backoff. Only
+    definite answers are stored: matched, or no_article. Errors are retried on the next run.
+    """
+    from . import prefill
+    net = net or prefill.Net()
+    con = _connect(cache_db)
+    _tables(con)
+    done = {r[0] for r in con.execute("SELECT imdb_id FROM wikipedia_id")}
+    todo = [i for i in sorted(set(ids)) if i not in done]
+    fails, t0 = 0, time.time()
+    for n, t in enumerate(todo, 1):
+        deadline = time.time() + 60
+        u = net.get("wiki", f"wext:{t}", prefill.WIKI, {"action": "query", "list": "exturlusage", "euquery": f"www.imdb.com/title/{t}",
+                                                        "eunamespace": 0, "eulimit": 5, "format": "json"}, deadline)
+        pages = None
+        if "_error" not in u:
+            linked = [x["title"] for x in u.get("query", {}).get("exturlusage", [])]
+            pages = prefill._infobox(net, linked, deadline) if linked else []
+            if isinstance(pages, dict):
+                pages = None
+        if pages is None:
+            fails += 1
+            if fails >= max_consecutive_failures:
+                con.commit()
+                raise TooManyFailures(f"Wikipedia: {fails} consecutive failures after {n - 1} titles; cache kept, rerun to resume")
+            continue
+        fails = 0
+        if pages:
+            info = prefill._read_infobox(*pages[0])
+            con.execute("INSERT OR REPLACE INTO wikipedia_id VALUES (?,?,?,?)", (t, "matched", info["page"], json.dumps(info["languages"])))
+        else:
+            con.execute("INSERT OR REPLACE INTO wikipedia_id VALUES (?,?,?,?)", (t, "no_article", None, "[]"))
+        if n % 25 == 0:
+            con.commit()
+            _progress("Wikipedia", n, len(todo), t0)
+    con.commit()
+    if todo:
+        print()
+    con.close()
+
+
+def fetch_rule_data(status: pd.DataFrame, labels: pd.DataFrame, title_ids=None, cache_db=CACHE_DB, tmdb_interval=0.05, wikipedia=False):
     """Fetch what the rules need for focal-labeled titles (optionally a subset)."""
     foc = _focal_titles(status, labels)
     if title_ids is not None:
@@ -173,6 +221,11 @@ def fetch_rule_data(status: pd.DataFrame, labels: pd.DataFrame, title_ids=None, 
     print(f"{len(foc):,} focal-labeled titles: {len(t1):,} TMDB detail requests, {-(-len(foc) // 100)} Wikidata batches")
     fetch_tmdb_details(t1[["title_id", "tmdb_id", "tmdb_media"]], cache_db, interval=tmdb_interval)
     fetch_wikidata_languages(foc.title_id, cache_db)
+    if wikipedia:  # only the titles rule (a) flags
+        a = rules_table(status, labels, foc.title_id, cache_db)
+        ids = a.title_id[a.rule_spoken]
+        print(f"Wikipedia infobox lookups for the {len(ids):,} titles flagged by rule (a)")
+        fetch_wikipedia_languages(ids, cache_db)
 
 
 def _focal_titles(status, labels):
@@ -191,8 +244,11 @@ def rules_table(status, labels, title_ids=None, cache_db=CACHE_DB) -> pd.DataFra
     con = sqlite3.connect(cache_db)
     td = pd.read_sql("SELECT imdb_id AS title_id, spoken_json, status AS tmdb_detail_status FROM tmdb_detail", con)
     wd = pd.read_sql("SELECT imdb_id AS title_id, langs_json, status AS wd_status FROM wikidata_all", con)
+    wp = pd.read_sql("SELECT imdb_id AS title_id, status AS wiki_status, page AS wiki_page, langs_json AS wiki_json FROM wikipedia_id", con) \
+        if con.execute("SELECT name FROM sqlite_master WHERE name='wikipedia_id'").fetchone() else \
+        pd.DataFrame(columns=["title_id", "wiki_status", "wiki_page", "wiki_json"])
     con.close()
-    t = foc.merge(td, on="title_id", how="left").merge(wd, on="title_id", how="left")
+    t = foc.merge(td, on="title_id", how="left").merge(wd, on="title_id", how="left").merge(wp, on="title_id", how="left")
     miss_t = t[t.label_source.eq("T1") & t.tmdb_id.notna() & t.tmdb_detail_status.isna()]
     miss_w = t[t.wd_status.isna()]
     if len(miss_t) or len(miss_w):
@@ -201,17 +257,26 @@ def rules_table(status, labels, title_ids=None, cache_db=CACHE_DB) -> pd.DataFra
     t["wd_langs"] = t.langs_json.map(lambda s: json.loads(s) if isinstance(s, str) else [])
     t["n_spoken_focal"] = t.spoken.map(lambda s: len(set(s) & set(FOCAL)))
     t["rule_spoken"] = t.n_spoken_focal >= 2
+    t["wiki_langs"] = t.wiki_json.map(lambda s: json.loads(s) if isinstance(s, str) else [])
+    t["n_wiki_focal"] = t.wiki_langs.map(lambda ls: len(set(ls) & set(FOCAL)))
+    # (a2) needs a fetched Wikipedia answer; flagged_titles refuses to use it for titles that were never looked up
+    t["rule_spoken_wiki"] = t.rule_spoken & (t.wiki_status == "matched") & (t.n_wiki_focal >= 2)
     t["rule_wikidata"] = t.wd_langs.map(len) >= 2
     t["n_wd_focal"] = t.wd_langs.map(lambda ls: len(set(ls) & set(FOCAL)))
     t["rule_wikidata_focal"] = t.n_wd_focal >= 2
     t["rule_disagree"] = [bool(a and w and a not in w) for a, w in zip(t.tmdb_language.fillna(""), t.wd_langs)]
     return t[["title_id", "language", "label_source", "tmdb_language", "spoken", "n_spoken_focal", "wd_status", "wd_langs",
-              "n_wd_focal", "rule_spoken", "rule_wikidata", "rule_wikidata_focal", "rule_disagree"]].reset_index(drop=True)
+              "n_wd_focal", "wiki_status", "wiki_page", "wiki_langs", "n_wiki_focal",
+              "rule_spoken", "rule_spoken_wiki", "rule_wikidata", "rule_wikidata_focal", "rule_disagree"]].reset_index(drop=True)
 
 
 def flagged_titles(rules: pd.DataFrame, active) -> set:
     if not len(active):
         return set()
+    if "spoken_wiki" in active:
+        missing = rules[rules.rule_spoken & rules.wiki_status.isna()]
+        if len(missing):
+            raise RuntimeError(f"rule a2 needs Wikipedia lookups for {len(missing)} titles flagged by rule a; run rules-fetch --wikipedia")
     mask = np.zeros(len(rules), dtype=bool)
     for r in active:
         mask |= rules[f"rule_{r}"].to_numpy()
@@ -237,7 +302,7 @@ def control_evaluation(rules: pd.DataFrame, control: pd.DataFrame) -> tuple[pd.D
     c["manual"] = c.is_ambiguous.eq("1")
     m = c.merge(rules.drop(columns=["language"]), on="title_id", how="left")
     for r in RULES:
-        m[f"rule_{r}"] = m[f"rule_{r}"].fillna(False).astype(bool)
+        m[f"rule_{r}"] = (m[f"rule_{r}"] if f"rule_{r}" in m else pd.Series(False, index=m.index)).fillna(False).astype(bool)
     m["rule_any"] = m[[f"rule_{r}" for r in RULES]].any(axis=1)
     rows = []
     for name in [*(f"rule_{r}" for r in RULES), "rule_any"]:
