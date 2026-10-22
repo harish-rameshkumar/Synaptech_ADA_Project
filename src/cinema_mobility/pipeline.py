@@ -12,6 +12,7 @@ from sklearn.metrics import average_precision_score, roc_auc_score, brier_score_
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+FOCAL_LANGUAGES = ("hi", "ta", "te", "ml", "kn")
 CREDIT_REQUIRED = {"actor_id", "title_id", "year", "language", "billing_order"}
 
 
@@ -25,12 +26,13 @@ def load_credits(path: str | Path) -> pd.DataFrame:
     df = df.copy()
     df["year"] = pd.to_numeric(df["year"], errors="coerce")
     df["billing_order"] = pd.to_numeric(df["billing_order"], errors="coerce")
-    df = df.dropna(subset=["actor_id", "title_id", "year", "language", "billing_order"])
+    # Rows with no language label (unresolved titles) are kept: they are ties only, never language events.
+    df = df.dropna(subset=["actor_id", "title_id", "year", "billing_order"])
     df["year"] = df["year"].astype(int)
     df["billing_order"] = df["billing_order"].astype(int)
     df["actor_id"] = df["actor_id"].astype(str)
     df["title_id"] = df["title_id"].astype(str)
-    df["language"] = df["language"].astype(str).str.lower().str.strip()
+    df["language"] = df["language"].where(df["language"].isna(), df["language"].astype(str).str.lower().str.strip())
     def as_bool(series):
         return series.fillna(False).map(lambda x: x if isinstance(x, (bool, np.bool_)) else str(x).strip().lower() in {"1", "true", "yes", "y"})
     if "is_dubbed" in df:
@@ -42,9 +44,13 @@ def load_credits(path: str | Path) -> pd.DataFrame:
     return df.drop_duplicates(["actor_id", "title_id"]).sort_values(["year", "title_id", "billing_order"])
 
 
-def select_pairs(credits: pd.DataFrame, min_events: int = 10, min_at_risk: int = 100) -> pd.DataFrame:
-    """Pre-model pair selection based on clean first-entry events and eligible risk-years."""
-    transitions = _eligible_transitions(credits)
+def select_pairs(credits: pd.DataFrame, min_events: int = 10, min_at_risk: int = 100,
+                 focal_languages=FOCAL_LANGUAGES) -> pd.DataFrame:
+    """Pre-model pair selection based on clean first-entry events and eligible risk-years.
+
+    Only focal languages can be sources or destinations. The `selected` flag just applies the thresholds.
+    """
+    transitions = _eligible_transitions(credits, focal_languages)
     rows = []
     for (s, d), g in transitions.groupby(["source", "destination"]):
         rows.append({"source": s, "destination": d,
@@ -52,54 +58,85 @@ def select_pairs(credits: pd.DataFrame, min_events: int = 10, min_at_risk: int =
                      "eligible_actors": int(g["actor_id"].nunique()),
                      "at_risk_actor_years": int(sum((int(r.last_observed_year) if pd.isna(r.event_year) else int(r.event_year)) - int(r.qualifying_year) for r in g.itertuples()))})
     if not rows:
-        return pd.DataFrame(columns=["source", "destination", "events", "eligible_actors", "selected"])
+        return pd.DataFrame(columns=["source", "destination", "events", "eligible_actors", "at_risk_actor_years", "selected"])
     out = pd.DataFrame(rows)
     out["selected"] = (out.events >= min_events) & (out.at_risk_actor_years >= min_at_risk)
     return out.sort_values(["selected", "events"], ascending=[False, False])
 
 
-def _eligible_transitions(credits: pd.DataFrame) -> pd.DataFrame:
-    """Find first year an actor qualifies in S and first clean D credit thereafter."""
+def qualifying_years(credits: pd.DataFrame, focal_languages=FOCAL_LANGUAGES, count_unknown: bool = False) -> pd.DataFrame:
+    """First year each actor meets the source-language rule, per focal source language.
+
+    Rule: >= 5 source credits in >= 3 distinct calendar years, and source credits >= 70% of all prior
+    credits. Credits in other resolved languages always count in the denominator; unlabeled (unknown)
+    credits count only when count_unknown=True (a sensitivity switch, off by default).
+    """
+    focal = set(focal_languages)
+    labeled = credits[credits.language.notna()]
+    src = labeled[labeled.language.isin(focal)].groupby(["actor_id", "language"]).agg(n=("title_id", "size"), y=("year", "nunique"))
+    src = src[(src.n >= 5) & (src.y >= 3)].reset_index()
+    pool = credits if count_unknown else labeled
+    pool = pool[pool.actor_id.isin(set(src.actor_id))]
+    first_obs = labeled.groupby("actor_id").year.min()
+    sources = src.groupby("actor_id").language.apply(list)
     rows = []
-    observation_end = int(credits.year.max())
-    language_universe = sorted(credits.language.unique())
-    for actor, g in credits.groupby("actor_id", sort=False):
-        g = g.sort_values(["year", "title_id"])
-        actor_languages = sorted(g.language.unique())
-        for s in actor_languages:
-            source = g[g.language.eq(s)]
-            # First calendar year at which lifetime S credits meet both thresholds.
-            qualifying_year = None
-            for year in sorted(g.year.unique()):
-                prior = g[g.year.le(year)]
-                source_prior = prior[prior.language.eq(s)]
-                span = int(source_prior.year.max() - source_prior.year.min()) if len(source_prior) else 0
-                share = len(source_prior) / max(1, len(prior))
-                if len(source_prior) >= 5 and span >= 3 and share >= .70:
-                    qualifying_year = int(year)
+    for actor, g in pool.groupby("actor_id", sort=False):
+        years = g.year.to_numpy()
+        langs = g.language.to_numpy(dtype=object)
+        for s in sources[actor]:
+            for year in sorted(set(years)):
+                mask = years <= year
+                is_s = mask & (langs == s)
+                n_s = int(is_s.sum())
+                if n_s >= 5 and len(set(years[is_s])) >= 3 and n_s / int(mask.sum()) >= .70:
+                    rows.append({"actor_id": actor, "source": s, "qualifying_year": int(year),
+                                 "first_observed_year": int(first_obs[actor])})
                     break
-            if qualifying_year is None:
+    return pd.DataFrame(rows, columns=["actor_id", "source", "qualifying_year", "first_observed_year"])
+
+
+def _eligible_transitions(credits: pd.DataFrame, focal_languages=FOCAL_LANGUAGES,
+                          count_unknown: bool = False) -> pd.DataFrame:
+    """Find first year an actor qualifies in S and first clean D credit thereafter.
+
+    Only focal languages are sources or destinations. Unlabeled credits never create events; whether they
+    count in the 70% denominator is controlled by count_unknown (default: they do not).
+    """
+    focal = sorted(set(focal_languages))
+    labeled = credits[credits.language.notna()]
+    cols = ["actor_id", "source", "destination", "qualifying_year", "event_year",
+            "first_observed_year", "last_observed_year"]
+    if labeled.empty:
+        return pd.DataFrame(columns=cols)
+    observation_end = int(labeled.year.max())
+    q = qualifying_years(credits, focal, count_unknown)
+    by_actor = {a: g for a, g in labeled[labeled.actor_id.isin(set(q.actor_id))].groupby("actor_id", sort=False)}
+    rows = []
+    for r in q.itertuples(index=False):
+        g = by_actor[r.actor_id]
+        prior_dests = set(g.loc[g.year.le(r.qualifying_year), "language"])
+        # Include destinations the actor has never entered: they provide the
+        # non-event actor-years needed for a valid risk set.
+        for d in focal:
+            if d == r.source or d in prior_dests:
                 continue
-            prior_dests = set(g.loc[g.year.le(qualifying_year), "language"])
-            # Include destinations the actor has never entered: they provide the
-            # non-event actor-years needed for a valid risk set.
-            for d in language_universe:
-                if d == s or d in prior_dests:
-                    continue
-                target = g[(g.language.eq(d)) & (g.year.gt(qualifying_year))]
-                event_year = int(target.year.min()) if len(target) else np.nan
-                # Actors with an event before source qualification are ineligible.
-                rows.append({"actor_id": actor, "source": s, "destination": d,
-                             "qualifying_year": qualifying_year, "event_year": event_year,
-                             "first_observed_year": int(g.year.min()),
-                             "last_observed_year": observation_end})
-    return pd.DataFrame(rows).drop_duplicates(["actor_id", "source", "destination"])
+            target = g[(g.language.eq(d)) & (g.year.gt(r.qualifying_year))]
+            event_year = int(target.year.min()) if len(target) else np.nan
+            rows.append({"actor_id": r.actor_id, "source": r.source, "destination": d,
+                         "qualifying_year": r.qualifying_year, "event_year": event_year,
+                         "first_observed_year": r.first_observed_year, "last_observed_year": observation_end})
+    return pd.DataFrame(rows, columns=cols).drop_duplicates(["actor_id", "source", "destination"])
 
 
 def build_actor_year(credits: pd.DataFrame, source: str | None = None,
-                     destination: str | None = None, min_exposure_lag: int = 1) -> pd.DataFrame:
-    """Build actor-pair-year risk set and lagged collaborator exposure features."""
-    all_transitions = _eligible_transitions(credits)
+                     destination: str | None = None, min_exposure_lag: int = 1,
+                     focal_languages=FOCAL_LANGUAGES) -> pd.DataFrame:
+    """Build actor-pair-year risk set and lagged collaborator exposure features.
+
+    Only focal languages are sources or destinations; other resolved languages still count toward the
+    source-share denominator and the other-language feature.
+    """
+    all_transitions = _eligible_transitions(credits, focal_languages)
     transitions = all_transitions
     if source:
         transitions = transitions[transitions.source.eq(source.lower())]
@@ -107,8 +144,10 @@ def build_actor_year(credits: pd.DataFrame, source: str | None = None,
         transitions = transitions[transitions.destination.eq(destination.lower())]
     if transitions.empty:
         raise ValueError("No eligible actor-language-pair risk sets; inspect credits or relax pre-model data-quality thresholds.")
+    # Ties use every credit, including unlabeled titles; language events and features use labeled credits only.
+    tie_credits, credits = credits, credits[credits.language.notna()]
     # Historical collaborator ties, indexed by target actor and collaborator, with repeated-credit strength.
-    title_cast = credits.groupby("title_id").agg(year=("year", "min"), actors=("actor_id", lambda x: sorted(set(x)))).reset_index()
+    title_cast = tie_credits.groupby("title_id").agg(year=("year", "min"), actors=("actor_id", lambda x: sorted(set(x)))).reset_index()
     edge_rows = []
     for row in title_cast.itertuples(index=False):
         for a, b in combinations(row.actors, 2):

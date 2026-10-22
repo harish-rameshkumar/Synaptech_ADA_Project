@@ -5,9 +5,9 @@ A reproducible research pipeline for studying whether recent collaborator transi
 ## What is implemented
 
 - IMDb principal-cast ingestion for feature films and TV movies, restricted to top 10 billed actors.
-- TMDB `/find/{imdb_id}` language lookup with a local SQLite cache (`TMDB_API_KEY` required); metadata remains subject to manual review.
+- Tiered original-language labels in `label_source`: **T1** TMDB `/find/{imdb_id}` (movie match preferred over TV), **T2** Wikidata by IMDb ID (P345) original language (P364), else **unknown**. Every lookup is cached in SQLite so reruns resume (`TMDB_API_KEY` in `.env`). `title.akas` is *not* a labelling tier (its original-title rows carry no language); it is used only to shortlist candidate titles (region `IN` or an hi/ta/te/ml/kn aka) and to flag likely dubbed/ambiguous titles. Cast is never used to infer language. Metadata remains subject to manual review.
 - Reviewed language labels can exclude dubbed releases and ambiguous bilingual/multilingual titles.
-- Actor-language risk sets using the one-pager's thresholds: at least five principal credits in source language across at least three years, at least 70% of observed prior credits in that source language, and no prior destination credit.
+- Actor-language risk sets using the one-pager's thresholds: at least five principal credits in the source language across at least three *distinct calendar years* (a count of distinct years, not a max-minus-min span, and the years need not be consecutive), at least 70% of observed prior credits in that source language, and no prior destination credit.
 - Time-varying collaboration ties and lagged 1-3 year exposure, with a stricter two-year-lag sensitivity option; a collaborator must have had an existing tie with the actor before their own first destination-language credit. Same-year moves do not count as exposure.
 - Career-only vs career-plus-network discrete-time logistic models, chronological holdout, AUPRC / ROC-AUC / Brier score, and a lead-exposure placebo.
 
@@ -19,7 +19,7 @@ A reproducible research pipeline for studying whether recent collaborator transi
    - `language`: reviewed ISO-639-1 language code (e.g. `hi`, `ta`, `te`, `ml`, `kn`, `bn`, `mr`, `pa`)
    - `is_dubbed`: true when the release is dubbed into that language rather than a new-language career credit
    - `is_ambiguous`: true for uncertain or genuinely multilingual language assignment
-3. Use TMDB original-language metadata as the initial label, then review ambiguous cases using Wikidata/film documentation. TMDB labels alone do not reliably identify every language present in a film. Keep decisions in the CSV so exclusions are auditable.
+3. Use the T1 (TMDB) / T2 (Wikidata) labels as the initial label (`cinema-mobility resolve-labels [--end-year Y] [--sample N]`), then review dubbed and ambiguous cases manually. TMDB labels alone do not reliably identify every language present in a film. Keep decisions in the CSV so exclusions are auditable.
 
 The optional TMDB resolver can be run from Python after IDs are available:
 
@@ -28,6 +28,32 @@ from cinema_mobility.ingest import tmdb_enrich
 # IDs are IMDb tconst strings, for example tt1234567
 tmdb_enrich(imdb_title_ids, "data/raw/tmdb_matches.csv")
 ```
+
+## Building the credits table and quality outputs
+
+```bash
+cinema-mobility resolve-labels [--end-year Y]      # T1 TMDB, T2 Wikidata; cached in data/raw/label_cache.sqlite, resumable
+cinema-mobility build-credits [--end-year 2024] [--focal-languages hi,ta,te,ml,kn]       # data/processed/credits.parquet (left join)
+cinema-mobility quality-report [--end-year 2024]      # results/data_quality.csv + data/raw/language_labels_review.csv
+cinema-mobility make-sample                        # data/processed/credits_sample.parquet (~5,000 credits)
+```
+
+- `credits.parquet` keeps (a) titles labeled with a focal language, (b) titles resolved to **other** languages, kept with their label so the source-share denominator and other-language features are correct, and (c) candidate titles whose language is unknown (`language` null, `label_source = unknown`). Unknown titles are collaboration ties only: they never create language events and, by default, are excluded from the 70% share denominator (`qualifying_years(..., count_unknown=True)` and the report's `eligibility_sensitivity` section show the effect of counting them). Only the **focal languages** (`--focal-languages`, default hi,ta,te,ml,kn) can be sources or destinations in risk sets and the pair screen; other resolved languages never are. Titles never sent to TMDB (no IN-region or focal-language aka) and titles after `--end-year` (we use 2024) are dropped; a 2,000-title recall check found 0.05% target-language titles outside the candidate rule.
+- `results/data_quality.csv` is a long table (`section`, `key1`, `key2`, counts, `share`, `note`) with titles dropped per stage, match rate per tier overall / by language / by year, unknown concentration flags, per-tier actor and tie contribution, merged/orphan ID evidence and graph connectivity.
+- `language_labels_review.csv` lists likely dubbed or ambiguous kept titles, ranked by ties lost if the title were dropped, then actors; fill `is_dubbed` / `is_ambiguous` and the pipeline's `load_credits` honours them once merged back onto the credits.
+- The sample is built from whole title casts around eligible actors so ties survive. It holds ids, years, billing and labels only. IMDb data remains subject to IMDb's non-commercial license, so share it only within the project team.
+
+## Manual review workflow
+
+```bash
+cinema-mobility review-packet                     # data/review/packet/: review_A/B/C.csv, review_control.csv, packet_key.csv, CODEBOOK.md
+# reviewers fill is_dubbed / is_ambiguous (1/0) per docs/review_codebook.md and return <name>_reviewed.csv
+cinema-mobility review-agreement --reviewed A_reviewed.csv B_reviewed.csv C_reviewed.csv --control control_reviewed.csv
+cinema-mobility apply-review --reviewed A_reviewed.csv B_reviewed.csv C_reviewed.csv [--control file] [--excluded-as ties|drop]
+```
+
+- The top 1,500 titles by impact are dealt round-robin into three files of 500. A shared overlap set of 100 titles (random, drawn from below the top block) is added to every file, unmarked, so `review-agreement` can report Fleiss' kappa (plus pairwise Cohen's) for `is_dubbed`, `is_ambiguous` and the combined exclude decision. 200 more random titles from the rest form the control file; the share of them a reviewer would exclude estimates the error rate left in the ~3,900 unreviewed titles (Wilson 95% interval).
+- `apply-review` takes a strict majority per field across reviewers; a split vote is a conflict and is excluded as ambiguous. An optional `corrected_language` replaces the label (`label_source = reviewed`). Excluded titles stay in `credits.parquet` as collaboration ties with no language (`label_source = review_excluded`); `--excluded-as drop` removes their credits instead. It rebuilds `credits.parquet` from the original labels (so it can be rerun as reviews come in), keeps the pre-review table in `data/processed/credits_pre_review.parquet`, prints how many titles and credits changed, refuses to write to any reviewed file and verifies their checksums afterwards.
 
 ## Setup and run
 
