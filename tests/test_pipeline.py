@@ -67,3 +67,19 @@ def test_unlabeled_credits_are_ties_only_not_eligibility(tmp_path):
     # 5 labeled ta credits / 10 total would fail the 70% share if unlabeled credits counted.
     assert "x" in set(tr.actor_id)
     build_actor_year(credits, "ta", "hi")  # no crash with unlabeled rows
+
+
+def test_focal_languages_limit_sources_and_destinations_but_other_languages_count_in_share():
+    rows = [{"actor_id": "x", "title_id": f"x-{i}", "year": y, "language": "ta", "billing_order": 1}
+            for i, y in enumerate([2000, 2001, 2002, 2003, 2004])]
+    rows += [{"actor_id": "x", "title_id": "x-en", "year": 2004, "language": "en", "billing_order": 1},
+             {"actor_id": "x", "title_id": "x-bn", "year": 2008, "language": "bn", "billing_order": 1},
+             {"actor_id": "o", "title_id": "o-hi", "year": 2010, "language": "hi", "billing_order": 1}]
+    tr = _eligible_transitions(pd.DataFrame(rows), ("ta", "hi"))
+    assert set(tr.destination) == {"hi"} and set(tr.source) == {"ta"}  # bn/en never sources or destinations
+    assert tr.event_year.isna().all()
+    # 5 ta of 6 prior credits (the English one counts in the denominator) = 83%: still eligible...
+    assert "x" in set(tr.actor_id)
+    rows += [{"actor_id": "x", "title_id": f"x-en{i}", "year": 2004, "language": "en", "billing_order": 1} for i in range(3)]
+    # ...but 5 ta of 9 prior credits is below 70%.
+    assert "x" not in set(_eligible_transitions(pd.DataFrame(rows), ("ta", "hi")).actor_id)
