@@ -2,9 +2,55 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import pandas as pd
-from .ingest import from_imdb
+from .ingest import from_imdb, title_status, build_credits
+from . import quality
 from .resolver import resolve_labels, TooManyFailures
 from .pipeline import load_credits, select_pairs, build_actor_year, evaluate, run_placebo
+
+
+def _status(end_year):
+    i = "data/interim/"
+    return title_status(pd.read_parquet(i + "titles.parquet"), pd.read_parquet(i + "candidates.parquet"),
+                        pd.read_parquet(i + "labels.parquet"), end_year)
+
+
+def _derived(args):
+    i = "data/interim/"
+    if args.command == "make-sample":
+        credits = pd.read_parquet(args.credits)
+        out = quality.make_sample(credits, args.n, seed=args.seed)
+        out.to_parquet(args.out, index=False)
+        print(f"Wrote {len(out):,} credits, {out.title_id.nunique():,} titles, {out.actor_id.nunique():,} actors to {args.out}")
+        print(out.label_source.value_counts().to_string())
+        return
+    status = _status(args.end_year)
+    status.to_parquet(i + "title_status.parquet", index=False)
+    raw = pd.read_parquet(i + "credits_raw.parquet")
+    if args.command == "build-credits":
+        out = build_credits(raw, status, args.out)
+        print(f"Wrote {len(out):,} credits ({out.title_id.nunique():,} titles, {out.actor_id.nunique():,} actors) to {args.out}")
+        print(status.status.value_counts().to_string())
+        return
+    credits = build_credits(raw, status)
+    labels = pd.read_parquet(i + "labels.parquet")
+    summary = pd.read_parquet(i + "akas_summary.parquet")
+    stages = quality.stage_counts(args.basics, args.principals)
+    pairs = quality.pair_table(credits)
+    scenarios = {
+        "A: unknown titles kept as ties": quality.connectivity(credits),
+        "B: unknown titles dropped": quality.connectivity(credits[credits.language.notna()]),
+        "C: ties from all candidate titles incl. other languages": quality.connectivity(
+            raw.merge(status[~status.status.isin(["dropped_not_indian_candidate", "dropped_after_end_year"])][["title_id"]], on="title_id")),
+    }
+    dq = quality.data_quality(status, labels, summary, credits, stages, pairs, scenarios, quality.target_connectivity(credits))
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    dq.to_csv(args.out, index=False)
+    basics = pd.read_csv(args.basics, sep="\t", na_values="\\N", usecols=["tconst", "primaryTitle"]).rename(columns={"tconst": "title_id"})
+    review = quality.review_shortlist(credits, status, labels, summary, basics[basics.title_id.isin(credits.title_id)], pairs)
+    review.to_csv(args.review_out, index=False)
+    print(f"Wrote {args.out} ({len(dq)} rows) and {args.review_out} ({len(review):,} titles)")
+    for sec in ["stage", "tier_overall", "tier_contribution", "tier_exclusive", "connectivity", "connectivity_target_actors", "unknown_by_akas_language", "unknown_by_period", "tier_by_language", "orphan_ids", "merged_ids"]:
+        print("\n##", sec); print(dq[dq.section == sec].dropna(axis=1, how="all").drop(columns="section").to_string(index=False))
 
 
 def main():
@@ -24,6 +70,20 @@ def main():
     res.add_argument("--rate", type=float, default=20, help="TMDB requests per second")
     res.add_argument("--cache", default="data/raw/label_cache.sqlite")
     res.add_argument("--out", default="data/interim/labels.parquet")
+    bc = sub.add_parser("build-credits", help="Left-join credits to labels; unknown titles kept as ties")
+    bc.add_argument("--end-year", type=int, default=None)
+    bc.add_argument("--out", default="data/processed/credits.parquet")
+    qr = sub.add_parser("quality-report", help="Write results/data_quality.csv, the review shortlist and connectivity")
+    qr.add_argument("--end-year", type=int, default=None)
+    qr.add_argument("--basics", default="data/raw/title.basics.tsv.gz")
+    qr.add_argument("--principals", default="data/raw/title.principals.tsv.gz")
+    qr.add_argument("--out", default="results/data_quality.csv")
+    qr.add_argument("--review-out", default="data/raw/language_labels_review.csv")
+    sm = sub.add_parser("make-sample", help="Write a ~5,000-credit shareable sample")
+    sm.add_argument("--credits", default="data/processed/credits.parquet")
+    sm.add_argument("--n", type=int, default=5000)
+    sm.add_argument("--seed", type=int, default=42)
+    sm.add_argument("--out", default="data/processed/credits_sample.parquet")
     pairs = sub.add_parser("select-pairs", help="Report pre-model pair event and actor support")
     pairs.add_argument("--credits", default="data/processed/credits.parquet")
     pairs.add_argument("--min-events", type=int, default=10)
@@ -43,6 +103,8 @@ def main():
     if args.command == "ingest":
         df = from_imdb(args.principals, args.basics, args.languages, args.out)
         print(f"Wrote {len(df):,} principal credits to {args.out}")
+    elif args.command in ("build-credits", "quality-report", "make-sample"):
+        _derived(args)
     elif args.command == "resolve-labels":
         titles = pd.read_parquet(args.titles)
         ids = titles[titles.title_id.isin(pd.read_parquet(args.candidates).title_id)]
