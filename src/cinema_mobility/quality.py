@@ -329,20 +329,23 @@ def recall_check_rows(cache="data/raw/recall_cache.sqlite", focal=LANGS) -> list
 
 
 def rule_rows(rules_tbl: pd.DataFrame, credits_baseline: pd.DataFrame, control_eval: pd.DataFrame | None, sens: pd.DataFrame | None,
-              primary) -> list[dict]:
+              primary, primary_v2=()) -> list[dict]:
     rows = []
     per_title = credits_baseline.groupby("title_id").size()
     n = len(rules_tbl)
     for r in [*(c[5:] for c in rules_tbl.columns if c.startswith("rule_"))]:
         f = rules_tbl.title_id[rules_tbl[f"rule_{r}"]]
         rows.append(_row("rule_flags", r, n_titles=len(f), n_credits=int(per_title.reindex(f).sum()), share=len(f) / n,
-                         note="share of focal-labeled titles" + (" (in the primary set)" if r in primary else "")))
-    mask = np.zeros(n, dtype=bool)
-    for r in primary:
-        mask |= rules_tbl[f"rule_{r}"].to_numpy()
-    f = rules_tbl.title_id[mask]
-    rows.append(_row("rule_flags", "primary set: " + "+".join(primary), n_titles=len(f), n_credits=int(per_title.reindex(f).sum()),
-                     share=len(f) / n, note="titles kept as ties only in credits_final"))
+                         note="share of focal-labeled titles" + (" (in final)" if r in primary else "") + (" (in final_v2)" if r in primary_v2 else "")))
+    for label, rs in [("final", primary), ("final_v2", primary_v2)]:
+        if not rs:
+            continue
+        mask = np.zeros(n, dtype=bool)
+        for r in rs:
+            mask |= rules_tbl[f"rule_{r}"].to_numpy()
+        f = rules_tbl.title_id[mask]
+        rows.append(_row("rule_flags", f"{label} set: " + "+".join(rs), n_titles=len(f), n_credits=int(per_title.reindex(f).sum()),
+                         share=len(f) / n, note=f"titles kept as ties only in credits_{label}"))
     if control_eval is not None:
         for _, r in control_eval.iterrows():
             rows.append(_row("rule_control_validation", r["rule"], "precision", n_titles=int(r["flagged"]), value=r["precision"],

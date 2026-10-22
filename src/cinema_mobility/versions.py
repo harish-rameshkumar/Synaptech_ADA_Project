@@ -14,6 +14,8 @@ REGISTRY = [
      "No-rules baseline. Includes the 2 control corrections (Danny Jigar gu, Kanulu Therichinaa Kanulu Moosinaa te)."),
     ("final", "credits_final.parquet", "spoken+wikidata_focal+disagree", True, "PRIMARY analysis",
      "Baseline plus rules (a) TMDB spoken>=2 focal, (b-focal) Wikidata>=2 focal, (c) TMDB/Wikidata disagree: flagged titles are ties only."),
+    ("final_v2", "credits_final_v2.parquet", "spoken_wiki+wikidata_focal+disagree", True, "candidate primary (refined rule a2)",
+     "Like final, but rule (a) is refined to (a2): TMDB spoken>=2 focal AND the IMDb-matched Wikipedia infobox also lists >=2 focal languages."),
     ("sample_final", "credits_final_sample.parquet", "spoken+wikidata_focal+disagree", True, "development sample of final",
      "~5,000 credits from whole title casts around eligible actors; ids, years, billing and labels only."),
     ("sample_baseline", "credits_sample.parquet", "none", False, "older development sample",

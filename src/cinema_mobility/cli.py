@@ -67,7 +67,7 @@ def _derived(args):
         if Path(args.control).exists():
             ctl = pd.read_csv(args.control, dtype=str, keep_default_na=False)
             ev, _ = rules.control_evaluation(rules.rules_table(status, labels, ctl.tconst), ctl)
-        extra_rows += quality.rule_rows(rtbl, base, ev, pd.read_csv(sens_path) if sens_path.exists() else None, rules.PRIMARY)
+        extra_rows += quality.rule_rows(rtbl, base, ev, pd.read_csv(sens_path) if sens_path.exists() else None, rules.PRIMARY, rules.PRIMARY_V2)
     vpath = Path("data/processed/data_versions.csv")
     if vpath.exists():
         extra_rows += quality.version_rows(pd.read_csv(vpath))
@@ -96,7 +96,7 @@ def _rules(args):
             foc = status[status.status.eq("kept_labeled")].title_id
             foc = foc[foc.isin(ids)] if ids is not None else foc
             ids = set(foc.sample(args.limit, random_state=args.seed))
-        rules.fetch_rule_data(status, labels, ids)
+        rules.fetch_rule_data(status, labels, ids, wikipedia=args.wikipedia)
         return
     pd.set_option("display.width", 220)
     if args.stage == "control":
@@ -105,8 +105,17 @@ def _rules(args):
         ev, merged = rules.control_evaluation(tbl, ctl)
         print(f"Control rows: {len(ctl)}; focal-labeled (rules apply): {len(tbl)}; manual ambiguity flags: {int(merged.manual.sum())}\n")
         print(ev.round(3).to_string(index=False))
-        show = merged[merged.manual | merged.rule_any][["title_id", "primaryTitle", "manual", "rule_spoken", "rule_wikidata", "rule_wikidata_focal", "rule_disagree", "tmdb_language", "spoken", "wd_langs"]]
+        show = merged[merged.manual | merged.rule_any][["title_id", "primaryTitle", "manual", "rule_spoken", "rule_spoken_wiki", "rule_wikidata", "rule_wikidata_focal", "rule_disagree", "tmdb_language", "spoken", "wd_langs"]]
         print("\nRows flagged by the manual pre-fill or by any rule:"); print(show.to_string(index=False))
+        if args.subset:
+            sub = pd.read_csv(args.subset, dtype=str, keep_default_na=False).tconst
+            sctl = ctl[ctl.tconst.isin(sub)]
+            sev, smerged = rules.control_evaluation(tbl[tbl.title_id.isin(sub)], sctl)
+            print(f"\nSubset of {len(sctl)} rows ({int(smerged.manual.sum())} pre-fill ambiguity flags; this is the pre-fill, not the human answers):")
+            print(sev.round(3).to_string(index=False))
+            named = ["Baladoor", "Khiladi", "Maanaadu", "Rakta Charitra", "Rogue", "Rocketry: The Nambi Effect", "Asvins"]
+            cols = ["primaryTitle", "rule_spoken", "rule_spoken_wiki", "wiki_status", "wiki_langs", "spoken", "manual"]
+            print("\nNamed titles:"); print(merged[merged.primaryTitle.isin(named)].merge(tbl[["title_id", "wiki_status", "wiki_langs"]], on="title_id", how="left", suffixes=("_x", ""))[cols].to_string(index=False))
         return
     credits = pd.read_parquet(args.credits)
     tbl = rules.rules_table(status, labels)
@@ -220,7 +229,7 @@ def main():
     bc = sub.add_parser("build-credits", help="Left-join credits to labels; unknown titles kept as ties")
     bc.add_argument("--end-year", type=int, default=None)
     bc.add_argument("--out", default="data/processed/credits.parquet")
-    bc.add_argument("--ambiguity-rules", default="none", help="none | all | comma list of spoken,wikidata,wikidata_focal,disagree (a,b,bf,c): flagged titles stay as ties with no language")
+    bc.add_argument("--ambiguity-rules", default="none", help="none | all | comma list of spoken,spoken_wiki,wikidata,wikidata_focal,disagree (a,a2,b,bf,c): flagged titles stay as ties with no language")
     bc.add_argument("--focal-languages", default="hi,ta,te,ml,kn", help="comma-separated; only these can be sources/destinations")
     qr = sub.add_parser("quality-report", help="Write results/data_quality.csv, the review shortlist and connectivity")
     qr.add_argument("--end-year", type=int, default=None)
@@ -263,7 +272,7 @@ def main():
     ap.add_argument("--decisions-out", default="data/interim/review_decisions.csv")
     ap.add_argument("--labels-out", default="data/interim/labels_reviewed.parquet")
     ap.add_argument("--focal-languages", default="hi,ta,te,ml,kn")
-    ap.add_argument("--ambiguity-rules", default="none", help="none | all | comma list of spoken,wikidata,wikidata_focal,disagree (a,b,bf,c): flagged titles stay as ties with no language")
+    ap.add_argument("--ambiguity-rules", default="none", help="none | all | comma list of spoken,spoken_wiki,wikidata,wikidata_focal,disagree (a,a2,b,bf,c): flagged titles stay as ties with no language")
     pf = sub.add_parser("prefill-review", help="Pre-fill a review file from TMDB + Wikipedia into a NEW file (input is never modified)")
     pf.add_argument("--input", required=True)
     pf.add_argument("--out", required=True)
@@ -275,9 +284,11 @@ def main():
     rf.add_argument("--limit", type=int, help="random sample size for a trial run")
     rf.add_argument("--seed", type=int, default=42)
     rf.add_argument("--end-year", type=int, default=None)
+    rf.add_argument("--wikipedia", action="store_true", help="also fetch Wikipedia infobox languages (IMDb-matched) for titles flagged by rule a")
     rr = sub.add_parser("rules-report", help="Evaluate the ambiguity rules on the control file, or sensitivity across the whole table")
     rr.add_argument("--stage", choices=["control", "full"], required=True)
     rr.add_argument("--control", default="data/review/packet/review_control_prefilled.csv")
+    rr.add_argument("--subset", help="CSV with a tconst column (e.g. the 29-row human check sheet): also evaluate on just these rows")
     rr.add_argument("--credits", default="data/processed/credits.parquet")
     rr.add_argument("--end-year", type=int, default=None)
     rr.add_argument("--outdir", default="results")
