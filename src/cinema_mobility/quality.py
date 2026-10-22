@@ -174,7 +174,7 @@ def make_sample(credits: pd.DataFrame, target=5000, per_lang=None, seed=42, lang
     return out.sort_values(["year", "title_id", "billing_order"]).reset_index(drop=True)
 
 
-def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios, extra=None, sensitivity=None) -> pd.DataFrame:
+def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios, extra=None, sensitivity=None, extra_rows=None) -> pd.DataFrame:
     rows = []
 
     def add(section, key1="", key2="", **kw):
@@ -251,7 +251,8 @@ def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios,
     tp = pairs.merge(credits[["title_id", "label_source"]].drop_duplicates("title_id"), on="title_id")
     pair_tiers = tp.groupby(["a", "b"]).label_source.agg(lambda x: tuple(sorted(set(x))))
     actor_tiers = credits.groupby("actor_id").label_source.agg(lambda x: tuple(sorted(set(x))))
-    for tier in ["T1", "T2", "unknown"]:
+    order = ["T1", "T2", "reviewed", "unknown", "review_excluded", "rule_ambiguous"]
+    for tier in [t for t in order if t in set(credits.label_source)]:
         c = credits[credits.label_source == tier]
         add("tier_contribution", tier, n_titles=c.title_id.nunique(), n_credits=len(c), n_actors=c.actor_id.nunique(),
             n_ties=int(tp[tp.label_source == tier][["a", "b"]].drop_duplicates().shape[0]),
@@ -264,7 +265,7 @@ def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios,
         add("connectivity", name, n_titles=r["n_titles"], n_actors=r["n_actors"], share=r["largest_share"],
             value=r["n_components"], note=f"value = components; largest has {r['largest_component_actors']:,} actors; {r['singleton_actors']:,} singleton actors")
     for name, r in (extra or {}).items():
-        add("connectivity_target_actors", f"unknown titles {name} as ties", n_actors=r["n_target_actors"], share=r["largest_share"],
+        add("connectivity_target_actors", name, n_actors=r["n_target_actors"], share=r["largest_share"],
             value=r["n_components"], note=f"value = components among target-language actors; {r['singleton']:,} singletons")
     if sensitivity:
         z = sensitivity
@@ -278,4 +279,86 @@ def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios,
             note=f"median delay {z['median_delay_years']:.0f} yr")
         add("eligibility_sensitivity", "pairs eligible only when unknown counted", value=z["pairs_gained_when_counted"], note="should be 0: extra credits cannot raise the share")
         add("eligibility_sensitivity", "share of default pairs whose status or year changes", share=z["pct_pairs_changed"])
+    rows.extend(extra_rows or [])
     return pd.DataFrame(rows).reindex(columns=COLS)
+
+
+def wilson(x: int, n: int, z: float = 1.96):
+    p = x / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return p, max(0.0, centre - half), centre + half
+
+
+def _row(section, key1="", key2="", **kw):
+    return {"section": section, "key1": key1, "key2": key2, **kw}
+
+
+def control_validation_rows(control: pd.DataFrame) -> list[dict]:
+    """Validation of the evidence pre-fill on the random control sample (rows that had evidence only)."""
+    noev = control.notes.str.contains("no evidence found")
+    ev = ~noev
+    n = int(ev.sum())
+    changed = int(((control.corrected_language != "") & (control.language != "") & ev).sum())
+    filled = int(((control.corrected_language != "") & (control.language == "")).sum())
+    p, lo, hi = wilson(changed, n)
+    rows = [_row("control_validation", "control rows", n_titles=len(control)),
+            _row("control_validation", "rows with evidence", n_titles=n),
+            _row("control_validation", "rows with no evidence found", n_titles=int(noev.sum()),
+                 note=f"{int((noev & (control.language == '')).sum())} of them had no label to begin with"),
+            _row("control_validation", "existing labels changed", n_titles=changed, share=p,
+                 note=f"{changed}/{n}; 95% Wilson CI {lo:.1%}-{hi:.1%}"),
+            _row("control_validation", "unknown labels filled from Wikipedia", n_titles=filled),
+            _row("control_validation", "ambiguous flags (pre-fill)", n_titles=int((control.is_ambiguous == "1").sum())),
+            _row("control_validation", "dubbed flags (pre-fill)", n_titles=int((control.is_dubbed == "1").sum()))]
+    rows += [_row("control_validation", "confidence", lvl, n_titles=int((control.confidence == lvl).sum())) for lvl in ["high", "medium", "low"]]
+    return rows
+
+
+def recall_check_rows(cache="data/raw/recall_cache.sqlite", focal=LANGS) -> list[dict]:
+    """Share of random non-candidate titles that TMDB says are in a focal language (candidate-rule recall check)."""
+    import sqlite3
+    if not Path(cache).exists():
+        return []
+    d = pd.read_sql("SELECT imdb_id, language FROM tmdb", sqlite3.connect(cache))
+    x = int(d.language.isin(focal).sum())
+    p, lo, hi = wilson(x, len(d))
+    return [_row("recall_check", "non-candidate titles looked up on TMDB", n_titles=len(d)),
+            _row("recall_check", "focal-language titles outside the candidate rule", n_titles=x, share=p,
+                 note=f"{x}/{len(d)}; 95% Wilson CI {lo:.2%}-{hi:.2%}")]
+
+
+def rule_rows(rules_tbl: pd.DataFrame, credits_baseline: pd.DataFrame, control_eval: pd.DataFrame | None, sens: pd.DataFrame | None,
+              primary) -> list[dict]:
+    rows = []
+    per_title = credits_baseline.groupby("title_id").size()
+    n = len(rules_tbl)
+    for r in [*(c[5:] for c in rules_tbl.columns if c.startswith("rule_"))]:
+        f = rules_tbl.title_id[rules_tbl[f"rule_{r}"]]
+        rows.append(_row("rule_flags", r, n_titles=len(f), n_credits=int(per_title.reindex(f).sum()), share=len(f) / n,
+                         note="share of focal-labeled titles" + (" (in the primary set)" if r in primary else "")))
+    mask = np.zeros(n, dtype=bool)
+    for r in primary:
+        mask |= rules_tbl[f"rule_{r}"].to_numpy()
+    f = rules_tbl.title_id[mask]
+    rows.append(_row("rule_flags", "primary set: " + "+".join(primary), n_titles=len(f), n_credits=int(per_title.reindex(f).sum()),
+                     share=len(f) / n, note="titles kept as ties only in credits_final"))
+    if control_eval is not None:
+        for _, r in control_eval.iterrows():
+            rows.append(_row("rule_control_validation", r["rule"], "precision", n_titles=int(r["flagged"]), value=r["precision"],
+                             note=f"flagged {int(r['flagged'])}, true positives {int(r['true_positive'])} of {int(r['manual_flags'])} pre-fill flags"))
+            rows.append(_row("rule_control_validation", r["rule"], "recall", n_titles=int(r["flagged"]), value=r["recall"]))
+    if sens is not None:
+        none_events = int(sens.loc[sens.rules == "none", "total_events"].iloc[0])
+        for _, r in sens.iterrows():
+            rows.append(_row("rule_effect", r["rules"], n_titles=int(r["titles_flagged"]), n_credits=int(r["credits_flagged"]),
+                             n_actors=int(r["eligible_actors"]), value=int(r["total_events"]), share=r["total_events"] / none_events - 1,
+                             note=f"eligible actor-language pairs {int(r['eligible_actor_language_pairs'])}; at-risk actor-years {int(r['total_at_risk_actor_years'])}; "
+                                  f"min pair events {int(r['min_pair_events'])}; pairs meeting default thresholds {int(r['pairs_meeting_default_thresholds'])}"))
+    return rows
+
+
+def version_rows(versions: pd.DataFrame) -> list[dict]:
+    return [_row("versions", r.version, n_titles=r.titles, n_credits=r.credits, n_actors=r.actors,
+                 note=f"{r.file}; rules={r.rules}; focal credits {r.focal_language_credits:,}; ties-only credits {r.tie_only_credits:,}")
+            for r in versions.itertuples()]
