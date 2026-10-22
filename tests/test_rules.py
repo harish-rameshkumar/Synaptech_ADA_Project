@@ -27,6 +27,8 @@ def _inputs(ids):
 def test_parse_rules():
     assert rules.parse_rules("all") == rules.RULES and rules.parse_rules("none") == ()
     assert rules.parse_rules("c,a") == ("spoken", "disagree")
+    assert rules.parse_rules("a,b-focal,c") == rules.PRIMARY == rules.parse_rules("spoken,wikidata_focal,disagree")
+    assert rules.parse_rules("bf") == ("wikidata_focal",)
     with pytest.raises(ValueError):
         rules.parse_rules("spoken,nope")
 
@@ -40,6 +42,7 @@ def test_each_rule_fires_on_its_own_condition(tmp_path):
     t = rules.rules_table(*_inputs(ids), cache_db=db).set_index("title_id")
     assert t.rule_spoken.to_dict() == {"clean": False, "spoken": True, "multi_wd": False, "disagree": False, "kn_only_one": False, "no_wd": False}
     assert t.rule_wikidata.to_dict() == {"clean": False, "spoken": False, "multi_wd": True, "disagree": False, "kn_only_one": False, "no_wd": False}
+    assert t.rule_wikidata_focal.to_dict() == {"clean": False, "spoken": False, "multi_wd": True, "disagree": False, "kn_only_one": False, "no_wd": False}
     # multi_wd contains te so it is not a disagreement; no Wikidata data means no disagreement
     assert t.rule_disagree.to_dict() == {"clean": False, "spoken": False, "multi_wd": False, "disagree": True, "kn_only_one": False, "no_wd": False}
 
@@ -66,7 +69,7 @@ def test_flagged_titles_stay_as_ties_with_no_language(tmp_path):
 
 def test_control_evaluation_precision_recall():
     tbl = pd.DataFrame({"title_id": ["a", "b", "c", "d"], "language": "te", "rule_spoken": [True, True, False, False],
-                        "rule_wikidata": False, "rule_disagree": [False, False, True, False]})
+                        "rule_wikidata": False, "rule_wikidata_focal": False, "rule_disagree": [False, False, True, False]})
     ctl = pd.DataFrame({"tconst": ["a", "b", "c", "d"], "primaryTitle": "x", "language": "te", "is_ambiguous": ["1", "0", "1", "0"]})
     ev, _ = rules.control_evaluation(tbl, ctl)
     e = ev.set_index("rule")
@@ -79,3 +82,12 @@ def test_reviewed_relabels_are_outside_the_rules(tmp_path):
     status, labels = _inputs(["a", "r"])
     status.loc[status.title_id == "r", "label_source"] = "reviewed"
     assert list(rules.rules_table(status, labels, cache_db=db).title_id) == ["a"]
+
+
+def test_wikidata_focal_ignores_non_focal_second_languages(tmp_path):
+    ids = ["en_second", "two_focal", "three_noise"]
+    db = _cache(tmp_path, {i: ("te", ["te"]) for i in ids},
+                {"en_second": ["te", "en"], "two_focal": ["te", "ta"], "three_noise": ["te", "en", "ur"]})
+    t = rules.rules_table(*_inputs(ids), cache_db=db).set_index("title_id")
+    assert t.rule_wikidata.all()                                   # plain rule: any two languages
+    assert t.rule_wikidata_focal.to_dict() == {"en_second": False, "two_focal": True, "three_noise": False}

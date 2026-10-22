@@ -3,6 +3,8 @@
 Rules (a title is flagged if any ACTIVE rule fires):
   spoken    TMDB spoken_languages contains two or more focal languages (hi, ta, te, ml, kn)
   wikidata  Wikidata lists two or more original languages (P364) for the title
+  wikidata_focal  Wikidata lists two or more FOCAL languages (hi, ta, te, ml, kn) as original languages; en and
+            other non-focal languages are ignored (the stricter, less noisy version of `wikidata`)
   disagree  TMDB original_language is missing from Wikidata's original languages (both present)
 Flagged titles stay in the credits as collaboration ties with no language (label_source = rule_ambiguous).
 """
@@ -20,8 +22,10 @@ from .pipeline import qualifying_years, select_pairs
 import os
 
 FOCAL = ("hi", "ta", "te", "ml", "kn")
-RULES = ("spoken", "wikidata", "disagree")
-ALIASES = {"a": "spoken", "b": "wikidata", "c": "disagree", "spoken": "spoken", "wikidata": "wikidata", "disagree": "disagree"}
+RULES = ("spoken", "wikidata", "wikidata_focal", "disagree")
+ALIASES = {"a": "spoken", "b": "wikidata", "bf": "wikidata_focal", "b-focal": "wikidata_focal", "b_focal": "wikidata_focal",
+           "c": "disagree", **{r: r for r in RULES}}
+PRIMARY = ("spoken", "wikidata_focal", "disagree")  # the rule set behind credits_final
 SOURCE_LABEL = "rule_ambiguous"
 
 
@@ -198,9 +202,11 @@ def rules_table(status, labels, title_ids=None, cache_db=CACHE_DB) -> pd.DataFra
     t["n_spoken_focal"] = t.spoken.map(lambda s: len(set(s) & set(FOCAL)))
     t["rule_spoken"] = t.n_spoken_focal >= 2
     t["rule_wikidata"] = t.wd_langs.map(len) >= 2
+    t["n_wd_focal"] = t.wd_langs.map(lambda ls: len(set(ls) & set(FOCAL)))
+    t["rule_wikidata_focal"] = t.n_wd_focal >= 2
     t["rule_disagree"] = [bool(a and w and a not in w) for a, w in zip(t.tmdb_language.fillna(""), t.wd_langs)]
     return t[["title_id", "language", "label_source", "tmdb_language", "spoken", "n_spoken_focal", "wd_status", "wd_langs",
-              "rule_spoken", "rule_wikidata", "rule_disagree"]].reset_index(drop=True)
+              "n_wd_focal", "rule_spoken", "rule_wikidata", "rule_wikidata_focal", "rule_disagree"]].reset_index(drop=True)
 
 
 def flagged_titles(rules: pd.DataFrame, active) -> set:
