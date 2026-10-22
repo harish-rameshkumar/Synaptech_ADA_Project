@@ -7,6 +7,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 from .filtering import LANGS, MIN_YEAR
+from .pipeline import qualifying_years
 
 COLS = ["section", "key1", "key2", "n_titles", "n_dropped", "n_credits", "n_actors", "n_ties", "share", "value", "note"]
 CONCENTRATION_PP = 10   # flag a group whose unknown share exceeds the overall share by this many points
@@ -79,9 +80,11 @@ def _actor_components(credits: pd.DataFrame) -> pd.Series:
     return pd.Series(lab[:n_a], index=au)
 
 
-def target_connectivity(credits: pd.DataFrame) -> dict:
-    """Connectivity of the actors who have a target-language credit, with and without unknown-title ties."""
-    targets = set(credits.loc[credits.language.notna(), "actor_id"])
+def target_connectivity(credits: pd.DataFrame, focal=LANGS) -> dict:
+    """Connectivity of the actors who have a focal-language credit, with and without unknown-title ties.
+
+    Resolved other-language titles stay in both graphs; only unknown titles are toggled."""
+    targets = set(credits.loc[credits.language.isin(focal), "actor_id"])
     out = {}
     for name, c in [("kept", credits), ("dropped", credits[credits.language.notna()])]:
         comp = _actor_components(c).reindex(sorted(targets))
@@ -90,6 +93,24 @@ def target_connectivity(credits: pd.DataFrame) -> dict:
                      "largest_share": float(sizes.iloc[0] / len(targets)),
                      "singleton": int((sizes == 1).sum())}
     return out
+
+
+def eligibility_sensitivity(credits: pd.DataFrame, focal=LANGS) -> dict:
+    """70%-share rule with unknown credits excluded from the denominator (default) vs counted in it."""
+    ex = qualifying_years(credits, focal, count_unknown=False)
+    inc = qualifying_years(credits, focal, count_unknown=True)
+    m = ex.merge(inc, on=["actor_id", "source"], how="outer", suffixes=("_excl", "_incl"), indicator=True)
+    only_ex, only_inc = m[m._merge == "left_only"], m[m._merge == "right_only"]
+    both = m[m._merge == "both"]
+    delayed = both[both.qualifying_year_incl > both.qualifying_year_excl]
+    # Of the actor-language pairs lost, how many unknown credits sat in their history?
+    return {"eligible_excluded": len(ex), "eligible_included": len(inc),
+            "actors_excluded": int(ex.actor_id.nunique()), "actors_included": int(inc.actor_id.nunique()),
+            "pairs_lost_when_counted": len(only_ex), "pairs_gained_when_counted": len(only_inc),
+            "actors_lost": int(set(ex.actor_id).difference(inc.actor_id).__len__()),
+            "pairs_qualifying_later": len(delayed), "pairs_unchanged": len(both) - len(delayed),
+            "median_delay_years": float((delayed.qualifying_year_incl - delayed.qualifying_year_excl).median()) if len(delayed) else 0.0,
+            "pct_pairs_changed": float((len(only_ex) + len(only_inc) + len(delayed)) / max(1, len(ex)))}
 
 
 def review_shortlist(credits, status, labels, summary, basics_titles, pairs) -> pd.DataFrame:
@@ -153,7 +174,7 @@ def make_sample(credits: pd.DataFrame, target=5000, per_lang=None, seed=42, lang
     return out.sort_values(["year", "title_id", "billing_order"]).reset_index(drop=True)
 
 
-def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios, extra=None) -> pd.DataFrame:
+def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios, extra=None, sensitivity=None) -> pd.DataFrame:
     rows = []
 
     def add(section, key1="", key2="", **kw):
@@ -169,7 +190,6 @@ def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios,
               ("has top-10 actor credit", len(status), s["year_ge_1980"] - len(status), "no actor/actress credit billed in top 10")]
     left = len(status)
     for key, reason in [("dropped_not_indian_candidate", "no IN-region or hi/ta/te/ml/kn aka (never sent to TMDB; recall check 1/2000)"),
-                        ("dropped_other_language", "resolved to a language outside hi/ta/te/ml/kn"),
                         ("dropped_after_end_year", "after --end-year")]:
         d = int((status.status == key).sum())
         if d:
@@ -177,7 +197,9 @@ def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios,
             stages.append((key, left, d, reason))
     for name, n, dropped, note in stages:
         add("stage", name, n_titles=n, n_dropped=dropped, note=note)
-    add("stage", "kept: labeled target language", n_titles=int((status.status == "kept_labeled").sum()), note="language events and eligibility")
+    add("stage", "kept: labeled focal language", n_titles=int((status.status == "kept_labeled").sum()), note="language events and eligibility")
+    add("stage", "kept: resolved to a non-focal language", n_titles=int((status.status == "kept_other_language").sum()),
+        note="kept with its label: counts in the source-share denominator and other-language features, never a source or destination")
     add("stage", "kept: unknown (ties only)", n_titles=int((status.status == "kept_unknown").sum()),
         note="in graph as ties; excluded from language events and eligibility")
     add("orphan_ids", "principals title IDs missing from basics (possible merged/removed IDs)",
@@ -241,4 +263,16 @@ def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios,
     for name, r in (extra or {}).items():
         add("connectivity_target_actors", f"unknown titles {name} as ties", n_actors=r["n_target_actors"], share=r["largest_share"],
             value=r["n_components"], note=f"value = components among target-language actors; {r['singleton']:,} singletons")
+    if sensitivity:
+        z = sensitivity
+        add("eligibility_sensitivity", "70% share, unknown EXCLUDED from denominator (default)", n_actors=z["actors_excluded"], value=z["eligible_excluded"],
+            note="value = eligible actor-source-language pairs")
+        add("eligibility_sensitivity", "70% share, unknown COUNTED in denominator", n_actors=z["actors_included"], value=z["eligible_included"],
+            note="value = eligible actor-source-language pairs")
+        add("eligibility_sensitivity", "pairs eligible only when unknown excluded", value=z["pairs_lost_when_counted"], note="lose eligibility if unknown credits count")
+        add("eligibility_sensitivity", "actors losing every source language", n_actors=z["actors_lost"])
+        add("eligibility_sensitivity", "pairs qualifying later when unknown counted", value=z["pairs_qualifying_later"],
+            note=f"median delay {z['median_delay_years']:.0f} yr")
+        add("eligibility_sensitivity", "pairs eligible only when unknown counted", value=z["pairs_gained_when_counted"], note="should be 0: extra credits cannot raise the share")
+        add("eligibility_sensitivity", "share of default pairs whose status or year changes", share=z["pct_pairs_changed"])
     return pd.DataFrame(rows).reindex(columns=COLS)

@@ -66,12 +66,13 @@ TARGET_LANGS = ("hi", "ta", "te", "ml", "kn")
 
 
 def title_status(titles, candidates, labels, end_year=None, langs=TARGET_LANGS) -> pd.DataFrame:
-    """Per-title fate: kept_labeled (target language), kept_unknown (tie only) or the reason it is dropped."""
+    """Per-title fate: kept_labeled (focal language), kept_other_language (resolved, non-focal), kept_unknown
+    (unresolved, ties only) or the reason it is dropped."""
     t = titles.merge(labels[["title_id", "language", "label_source"]], on="title_id", how="left")
     t["is_candidate"] = t.title_id.isin(candidates.title_id)
     t["status"] = "kept_unknown"
+    t.loc[t.language.notna(), "status"] = "kept_other_language"
     t.loc[t.language.isin(langs), "status"] = "kept_labeled"
-    t.loc[t.language.notna() & ~t.language.isin(langs), "status"] = "dropped_other_language"
     t.loc[~t.is_candidate, "status"] = "dropped_not_indian_candidate"
     if end_year:
         t.loc[t.year > end_year, "status"] = "dropped_after_end_year"
@@ -80,10 +81,14 @@ def title_status(titles, candidates, labels, end_year=None, langs=TARGET_LANGS) 
     return t
 
 
+KEPT = ["kept_labeled", "kept_other_language", "kept_unknown"]
+
+
 def build_credits(credits_raw, status, output_path=None) -> pd.DataFrame:
-    """Left join credits to labeled titles. Unresolved candidate titles are kept with language=NaN
-    (collaboration ties only); other-language and non-candidate titles are dropped."""
-    keep = status[status.status.isin(["kept_labeled", "kept_unknown"])]
+    """Left join credits to labeled titles. Unresolved candidate titles are kept with language=NaN (ties only);
+    titles resolved to other languages are kept with their label so source-language share is correct.
+    Titles never sent to the resolver, and titles after --end-year, are dropped."""
+    keep = status[status.status.isin(KEPT)]
     out = credits_raw.merge(keep[["title_id", "year", "titleType", "language", "label_source"]], on="title_id", how="inner")
     out["label_source"] = out.label_source.where(out.language.notna(), "unknown")
     out = out.rename(columns={"titleType": "title_type"}).sort_values(["year", "title_id", "billing_order"]).reset_index(drop=True)

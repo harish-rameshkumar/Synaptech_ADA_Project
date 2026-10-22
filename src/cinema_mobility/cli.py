@@ -8,10 +8,14 @@ from .resolver import resolve_labels, TooManyFailures
 from .pipeline import load_credits, select_pairs, build_actor_year, evaluate, run_placebo
 
 
-def _status(end_year):
+def _focal(args):
+    return tuple(x.strip().lower() for x in args.focal_languages.split(",") if x.strip())
+
+
+def _status(end_year, focal):
     i = "data/interim/"
     return title_status(pd.read_parquet(i + "titles.parquet"), pd.read_parquet(i + "candidates.parquet"),
-                        pd.read_parquet(i + "labels.parquet"), end_year)
+                        pd.read_parquet(i + "labels.parquet"), end_year, focal)
 
 
 def _derived(args):
@@ -23,7 +27,7 @@ def _derived(args):
         print(f"Wrote {len(out):,} credits, {out.title_id.nunique():,} titles, {out.actor_id.nunique():,} actors to {args.out}")
         print(out.label_source.value_counts().to_string())
         return
-    status = _status(args.end_year)
+    status = _status(args.end_year, _focal(args))
     status.to_parquet(i + "title_status.parquet", index=False)
     raw = pd.read_parquet(i + "credits_raw.parquet")
     if args.command == "build-credits":
@@ -36,20 +40,21 @@ def _derived(args):
     summary = pd.read_parquet(i + "akas_summary.parquet")
     stages = quality.stage_counts(args.basics, args.principals)
     pairs = quality.pair_table(credits)
+    focal = _focal(args)
     scenarios = {
-        "A: unknown titles kept as ties": quality.connectivity(credits),
+        "A: all kept titles (unknown and other-language kept as ties)": quality.connectivity(credits),
         "B: unknown titles dropped": quality.connectivity(credits[credits.language.notna()]),
-        "C: ties from all candidate titles incl. other languages": quality.connectivity(
-            raw.merge(status[~status.status.isin(["dropped_not_indian_candidate", "dropped_after_end_year"])][["title_id"]], on="title_id")),
+        "C: focal-language titles only": quality.connectivity(credits[credits.language.isin(focal)]),
     }
-    dq = quality.data_quality(status, labels, summary, credits, stages, pairs, scenarios, quality.target_connectivity(credits))
+    dq = quality.data_quality(status, labels, summary, credits, stages, pairs, scenarios,
+                              quality.target_connectivity(credits, focal), quality.eligibility_sensitivity(credits, focal))
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     dq.to_csv(args.out, index=False)
     basics = pd.read_csv(args.basics, sep="\t", na_values="\\N", usecols=["tconst", "primaryTitle"]).rename(columns={"tconst": "title_id"})
     review = quality.review_shortlist(credits, status, labels, summary, basics[basics.title_id.isin(credits.title_id)], pairs)
     review.to_csv(args.review_out, index=False)
     print(f"Wrote {args.out} ({len(dq)} rows) and {args.review_out} ({len(review):,} titles)")
-    for sec in ["stage", "tier_overall", "tier_contribution", "tier_exclusive", "connectivity", "connectivity_target_actors", "unknown_by_akas_language", "unknown_by_period", "tier_by_language", "orphan_ids", "merged_ids"]:
+    for sec in ["stage", "tier_overall", "tier_contribution", "tier_exclusive", "connectivity", "connectivity_target_actors", "eligibility_sensitivity", "unknown_by_akas_language", "unknown_by_period", "tier_by_language", "orphan_ids", "merged_ids"]:
         print("\n##", sec); print(dq[dq.section == sec].dropna(axis=1, how="all").drop(columns="section").to_string(index=False))
 
 
@@ -73,11 +78,13 @@ def main():
     bc = sub.add_parser("build-credits", help="Left-join credits to labels; unknown titles kept as ties")
     bc.add_argument("--end-year", type=int, default=None)
     bc.add_argument("--out", default="data/processed/credits.parquet")
+    bc.add_argument("--focal-languages", default="hi,ta,te,ml,kn", help="comma-separated; only these can be sources/destinations")
     qr = sub.add_parser("quality-report", help="Write results/data_quality.csv, the review shortlist and connectivity")
     qr.add_argument("--end-year", type=int, default=None)
     qr.add_argument("--basics", default="data/raw/title.basics.tsv.gz")
     qr.add_argument("--principals", default="data/raw/title.principals.tsv.gz")
     qr.add_argument("--out", default="results/data_quality.csv")
+    qr.add_argument("--focal-languages", default="hi,ta,te,ml,kn", help="comma-separated; only these can be sources/destinations")
     qr.add_argument("--review-out", default="data/raw/language_labels_review.csv")
     sm = sub.add_parser("make-sample", help="Write a ~5,000-credit shareable sample")
     sm.add_argument("--credits", default="data/processed/credits.parquet")
@@ -89,11 +96,13 @@ def main():
     pairs.add_argument("--min-events", type=int, default=10)
     pairs.add_argument("--min-risk-years", type=int, default=100)
     pairs.add_argument("--out", default="results/pair_screen.csv")
+    pairs.add_argument("--focal-languages", default="hi,ta,te,ml,kn", help="comma-separated; only these can be sources/destinations")
     build = sub.add_parser("build", help="Build actor-year risk set and temporal exposure variables")
     build.add_argument("--credits", default="data/processed/credits.parquet")
     build.add_argument("--source")
     build.add_argument("--destination")
     build.add_argument("--min-exposure-lag", type=int, default=1, choices=[1, 2, 3])
+    build.add_argument("--focal-languages", default="hi,ta,te,ml,kn", help="comma-separated; only these can be sources/destinations")
     build.add_argument("--out", default="data/processed/actor_year.parquet")
     model = sub.add_parser("analyze", help="Run chronological baseline/network comparison and lead placebo")
     model.add_argument("--actor-years", default="data/processed/actor_year.parquet")
@@ -121,13 +130,13 @@ def main():
         print(out.label_source.value_counts().to_string())
     elif args.command == "select-pairs":
         df = load_credits(args.credits)
-        out = select_pairs(df, args.min_events, args.min_risk_years)
+        out = select_pairs(df, args.min_events, args.min_risk_years, _focal(args))
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         out.to_csv(args.out, index=False)
         print(out.to_string(index=False))
     elif args.command == "build":
         df = load_credits(args.credits)
-        out = build_actor_year(df, args.source, args.destination, args.min_exposure_lag)
+        out = build_actor_year(df, args.source, args.destination, args.min_exposure_lag, _focal(args))
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         out.to_parquet(args.out, index=False)
         print(f"Wrote {len(out):,} actor-pair-years to {args.out}; events={int(out.event.sum())}")
