@@ -188,13 +188,16 @@ def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios,
               ("has start year", s["with_year"], s["movie_tvmovie"] - s["with_year"], "missing startYear"),
               ("year >= 1980", s["year_ge_1980"], s["with_year"] - s["year_ge_1980"], "before 1980"),
               ("has top-10 actor credit", len(status), s["year_ge_1980"] - len(status), "no actor/actress credit billed in top 10")]
+    # Drop order: end-year cut first (all titles), then the candidate rule on what remains.
     left = len(status)
-    for key, reason in [("dropped_not_indian_candidate", "no IN-region or hi/ta/te/ml/kn aka (never sent to TMDB; recall check 1/2000)"),
-                        ("dropped_after_end_year", "after --end-year")]:
-        d = int((status.status == key).sum())
-        if d:
-            left -= d
-            stages.append((key, left, d, reason))
+    after = status.status.eq("dropped_after_end_year")
+    if after.any():
+        left -= int(after.sum())
+        stages.append(("after --end-year", left, int(after.sum()), "title year after --end-year"))
+    notc = int((~status.is_candidate & ~after).sum())
+    left -= notc
+    stages.append(("Indian candidate (IN-region or focal-language aka)", left, notc,
+                   "never sent to TMDB; recall check found 1/2000 focal-language titles outside the rule"))
     for name, n, dropped, note in stages:
         add("stage", name, n_titles=n, n_dropped=dropped, note=note)
     add("stage", "kept: labeled focal language", n_titles=int((status.status == "kept_labeled").sum()), note="language events and eligibility")
@@ -207,7 +210,7 @@ def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios,
         note="IMDb dumps use current IDs; no redirect table is shipped, so these cannot be remapped")
 
     # --- tiers among the candidates sent to the resolver
-    cand = labels.copy()
+    cand = labels[labels.title_id.isin(status.loc[~status.status.eq("dropped_after_end_year"), "title_id"])].copy()
     n = len(cand)
     for tier in ["T1", "T2", "unknown"]:
         m = cand.label_source == tier
@@ -238,7 +241,7 @@ def data_quality(status, labels, summary, credits, raw_stages, pairs, scenarios,
         for tier in ["T1", "T2", "unknown"]:
             add("tier_by_year", int(y), tier, n_titles=int((g.label_source == tier).sum()), share=(g.label_source == tier).mean(),
                 note="share of that year's candidates")
-    cy["period"] = (cy.year // 5 * 5).astype(str) + "s-block"
+    cy["period"] = (cy.year // 5 * 5).astype(str) + "-" + (cy.year // 5 * 5 + 4).astype(str)
     for per, g in cy.groupby("period"):
         u = (g.label_source == "unknown").mean()
         flag = "CONCENTRATED" if (u - overall_unk) * 100 >= CONCENTRATION_PP and len(g) >= CONCENTRATION_MIN_N else ""
