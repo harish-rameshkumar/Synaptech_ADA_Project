@@ -63,18 +63,36 @@ Three rules flag focal-language titles whose single language label may mislead. 
 |---|---|
 | `spoken` (a) | TMDB `spoken_languages` contains two or more of hi, ta, te, ml, kn |
 | `wikidata` (b) | Wikidata lists two or more original languages (P364) |
+| `wikidata_focal` (b-focal, `bf`) | Wikidata lists two or more of hi, ta, te, ml, kn as original languages (en and other non-focal languages ignored) |
 | `disagree` (c) | TMDB `original_language` is not among Wikidata's original languages (both present) |
 
 ```bash
 cinema-mobility rules-fetch [--only FILE | --limit N]     # cached, resumable: ~16k TMDB detail calls + ~190 Wikidata batches for the full table
 cinema-mobility rules-report --stage control               # precision/recall of the rules against the control file's ambiguity flags
 cinema-mobility rules-report --stage full                  # titles/credits flagged per rule + all 8 on/off combinations -> results/ambiguity_rules_sensitivity.csv, results/ambiguity_rules_pairs.csv
-cinema-mobility build-credits --ambiguity-rules none|all|spoken,wikidata,disagree      # also on apply-review
+cinema-mobility build-credits --ambiguity-rules none|all|spoken,wikidata,wikidata_focal,disagree      # also on apply-review
 ```
 
 Flagged titles **stay in `credits.parquet` as collaboration ties with no language** (`label_source = rule_ambiguous`), so they never create language events and, by default, drop out of the 70% share denominator. The default is `none`: nothing changes until a rule set is chosen, and `rules-report --stage full` reports every combination for the sensitivity analysis. The control comparison measures agreement with the pre-fill's evidence-based flags, not accuracy against a hand review. Titles relabelled by manual review (`label_source = reviewed`) are outside the rules because they have no TMDB/Wikidata evidence to apply them to.
 
 Single corrections from a pre-fill can be applied through the normal review path: put them in a CSV with `tconst, is_dubbed, is_ambiguous, corrected_language` and run `apply-review --reviewed that.csv` (this is how the two control corrections, Danny Jigar to `gu` and Kanulu Therichinaa Kanulu Moosinaa to `te`, were applied).
+
+## Data versions (pick by name)
+
+`data/processed/data_versions.csv` (`cinema-mobility data-versions`) lists each table with its rules, row counts and sha256.
+
+| version | file | rules | use |
+|---|---|---|---|
+| `final` | `credits_final.parquet` | `spoken` + `wikidata_focal` + `disagree`, plus the 2 control corrections | **primary analysis** |
+| `baseline` | `credits.parquet` | none (includes the 2 control corrections) | sensitivity: no rules |
+| `pre_review` | `credits_pre_review.parquet` | none, no corrections | audit |
+| `sample_final` | `credits_final_sample.parquet` | as `final` | development (~5,000 credits) |
+| `sample_baseline` | `credits_sample.parquet` | none, older | older development sample |
+
+All versions have the same credits, titles and actors (they differ only in the `language` / `label_source` of flagged titles), so results are directly comparable. `credits_final` was built with
+`apply-review --reviewed data/review/corrections_control.csv --credits data/processed/credits_final.parquet --baseline data/processed/credits_pre_review.parquet --ambiguity-rules spoken,wikidata_focal,disagree`; `credits.parquet` is never modified by it. Flagged titles carry `label_source = rule_ambiguous` and `language` null; run any pipeline command on either file with `--credits`.
+
+`results/data_quality.csv` reports the final numbers: the control-sample validation (existing labels changed 0/157, 95% CI 0-2.4%), the candidate-rule recall check (1/2000), baseline-vs-final connectivity, per-rule flags, rule precision/recall on the control rows, and the effect of every rule combination on eligibility and the pair screen (`rule_effect`, from `rules-report --stage full`).
 
 ## Setup and run
 
