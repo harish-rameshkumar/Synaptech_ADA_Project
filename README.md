@@ -5,7 +5,7 @@ A reproducible research pipeline for studying whether recent collaborator transi
 ## What is implemented
 
 - IMDb principal-cast ingestion for feature films and TV movies, restricted to top 10 billed actors.
-- TMDB `/find/{imdb_id}` language lookup with a local SQLite cache (`TMDB_API_KEY` required); metadata remains subject to manual review.
+- Tiered original-language labels in `label_source`: **T1** TMDB `/find/{imdb_id}` (movie match preferred over TV), **T2** Wikidata by IMDb ID (P345) original language (P364), else **unknown**. Every lookup is cached in SQLite so reruns resume (`TMDB_API_KEY` in `.env`). `title.akas` is *not* a labelling tier (its original-title rows carry no language); it is used only to shortlist candidate titles (region `IN` or an hi/ta/te/ml/kn aka) and to flag likely dubbed/ambiguous titles. Cast is never used to infer language. Metadata remains subject to manual review.
 - Reviewed language labels can exclude dubbed releases and ambiguous bilingual/multilingual titles.
 - Actor-language risk sets using the one-pager's thresholds: at least five principal credits in the source language across at least three *distinct calendar years* (a count of distinct years, not a max-minus-min span, and the years need not be consecutive), at least 70% of observed prior credits in that source language, and no prior destination credit.
 - Time-varying collaboration ties and lagged 1-3 year exposure, with a stricter two-year-lag sensitivity option; a collaborator must have had an existing tie with the actor before their own first destination-language credit. Same-year moves do not count as exposure.
@@ -19,7 +19,7 @@ A reproducible research pipeline for studying whether recent collaborator transi
    - `language`: reviewed ISO-639-1 language code (e.g. `hi`, `ta`, `te`, `ml`, `kn`, `bn`, `mr`, `pa`)
    - `is_dubbed`: true when the release is dubbed into that language rather than a new-language career credit
    - `is_ambiguous`: true for uncertain or genuinely multilingual language assignment
-3. Use TMDB original-language metadata as the initial label, then review ambiguous cases using Wikidata/film documentation. TMDB labels alone do not reliably identify every language present in a film. Keep decisions in the CSV so exclusions are auditable.
+3. Use the T1 (TMDB) / T2 (Wikidata) labels as the initial label (`cinema-mobility resolve-labels [--end-year Y] [--sample N]`), then review dubbed and ambiguous cases manually. TMDB labels alone do not reliably identify every language present in a film. Keep decisions in the CSV so exclusions are auditable.
 
 The optional TMDB resolver can be run from Python after IDs are available:
 

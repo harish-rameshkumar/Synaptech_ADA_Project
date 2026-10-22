@@ -6,11 +6,6 @@ import pandas as pd
 import requests
 
 CACHE_DB = "data/raw/label_cache.sqlite"
-# Regions with a single dominant language. Multilingual regions (IN, BE, CH, CA, ...) are left out on purpose.
-REGION_LANG = {"JP": "ja", "FR": "fr", "DE": "de", "ES": "es", "IT": "it", "KR": "ko", "CN": "zh",
-               "RU": "ru", "TR": "tr", "TH": "th", "PL": "pl", "SE": "sv", "DK": "da", "NO": "no",
-               "FI": "fi", "NL": "nl", "PT": "pt", "GR": "el", "HU": "hu", "CZ": "cs", "IR": "fa"}
-
 
 class TooManyFailures(RuntimeError):
     pass
@@ -167,29 +162,20 @@ def wikidata_lookup(imdb_ids, cache_db=CACHE_DB, batch=100, interval=1.0, max_co
     return pd.DataFrame(rows, columns=["title_id", "wd_qid", "wd_language", "wd_status"])
 
 
-def akas_original_language(summary: pd.DataFrame) -> pd.Series:
-    """Tier 2: language of the title's original-title aka row, else the language implied by that row's
-    (single-language) region. Returns NaN where akas carries neither."""
-    lang = summary.orig_lang.copy()
-    return lang.fillna(summary.orig_region.map(REGION_LANG))
+def resolve_labels(title_ids, cache_db=CACHE_DB, **tmdb_kwargs) -> pd.DataFrame:
+    """Label each title's original language: T1 TMDB, T2 Wikidata, else unknown.
 
-
-def resolve_labels(title_ids, akas_summary: pd.DataFrame, cache_db=CACHE_DB, **tmdb_kwargs) -> pd.DataFrame:
-    """Label each title's original language: T1 TMDB, T2 akas, T3 Wikidata, else unknown. Never uses cast."""
+    title.akas is deliberately not a labelling tier (its original-title rows carry no language); it is used
+    only for candidate shortlisting and dub flagging. Cast is never used.
+    """
     ids = sorted(set(title_ids))
     out = pd.DataFrame({"title_id": ids})
-    t1 = tmdb_lookup(ids, cache_db=cache_db, **tmdb_kwargs)
-    out = out.merge(t1[t1.title_id.isin(ids)], on="title_id", how="left")
-    s = akas_summary.set_index("title_id")
-    out["akas_language"] = akas_original_language(s).reindex(out.title_id).to_numpy()
+    out = out.merge(tmdb_lookup(ids, cache_db=cache_db, **tmdb_kwargs).query("title_id in @ids"), on="title_id", how="left")
     out["language"], out["label_source"] = None, "unknown"
     m1 = out.tmdb_language.notna()
     out.loc[m1, "language"], out.loc[m1, "label_source"] = out.loc[m1, "tmdb_language"], "T1"
-    m2 = ~m1 & out.akas_language.notna()
-    out.loc[m2, "language"], out.loc[m2, "label_source"] = out.loc[m2, "akas_language"], "T2"
-    rest = out.loc[~m1 & ~m2, "title_id"]
-    t3 = wikidata_lookup(rest, cache_db=cache_db)
-    out = out.merge(t3[t3.title_id.isin(rest)], on="title_id", how="left")
-    m3 = ~m1 & ~m2 & out.wd_language.notna()
-    out.loc[m3, "language"], out.loc[m3, "label_source"] = out.loc[m3, "wd_language"], "T3"
+    rest = out.loc[~m1, "title_id"]
+    out = out.merge(wikidata_lookup(rest, cache_db=cache_db).query("title_id in @rest"), on="title_id", how="left")
+    m2 = ~m1 & out.wd_language.notna()
+    out.loc[m2, "language"], out.loc[m2, "label_source"] = out.loc[m2, "wd_language"], "T2"
     return out
