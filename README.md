@@ -55,6 +55,27 @@ cinema-mobility apply-review --reviewed A_reviewed.csv B_reviewed.csv C_reviewed
 - The top 1,500 titles by impact are dealt round-robin into three files of 500. A shared overlap set of 100 titles (random, drawn from below the top block) is added to every file, unmarked, so `review-agreement` can report Fleiss' kappa (plus pairwise Cohen's) for `is_dubbed`, `is_ambiguous` and the combined exclude decision. 200 more random titles from the rest form the control file; the share of them a reviewer would exclude estimates the error rate left in the ~3,900 unreviewed titles (Wilson 95% interval).
 - `apply-review` takes a strict majority per field across reviewers; a split vote is a conflict and is excluded as ambiguous. An optional `corrected_language` replaces the label (`label_source = reviewed`). Excluded titles stay in `credits.parquet` as collaboration ties with no language (`label_source = review_excluded`); `--excluded-as drop` removes their credits instead. It rebuilds `credits.parquet` from the original labels (so it can be rerun as reviews come in), keeps the pre-review table in `data/processed/credits_pre_review.parquet`, prints how many titles and credits changed, refuses to write to any reviewed file and verifies their checksums afterwards.
 
+## Predefined ambiguity rules (sensitivity switches)
+
+Three rules flag focal-language titles whose single language label may mislead. They use only title-level evidence (never the cast):
+
+| rule (`--ambiguity-rules`) | fires when |
+|---|---|
+| `spoken` (a) | TMDB `spoken_languages` contains two or more of hi, ta, te, ml, kn |
+| `wikidata` (b) | Wikidata lists two or more original languages (P364) |
+| `disagree` (c) | TMDB `original_language` is not among Wikidata's original languages (both present) |
+
+```bash
+cinema-mobility rules-fetch [--only FILE | --limit N]     # cached, resumable: ~16k TMDB detail calls + ~190 Wikidata batches for the full table
+cinema-mobility rules-report --stage control               # precision/recall of the rules against the control file's ambiguity flags
+cinema-mobility rules-report --stage full                  # titles/credits flagged per rule + all 8 on/off combinations -> results/ambiguity_rules_sensitivity.csv, results/ambiguity_rules_pairs.csv
+cinema-mobility build-credits --ambiguity-rules none|all|spoken,wikidata,disagree      # also on apply-review
+```
+
+Flagged titles **stay in `credits.parquet` as collaboration ties with no language** (`label_source = rule_ambiguous`), so they never create language events and, by default, drop out of the 70% share denominator. The default is `none`: nothing changes until a rule set is chosen, and `rules-report --stage full` reports every combination for the sensitivity analysis. The control comparison measures agreement with the pre-fill's evidence-based flags, not accuracy against a hand review. Titles relabelled by manual review (`label_source = reviewed`) are outside the rules because they have no TMDB/Wikidata evidence to apply them to.
+
+Single corrections from a pre-fill can be applied through the normal review path: put them in a CSV with `tconst, is_dubbed, is_ambiguous, corrected_language` and run `apply-review --reviewed that.csv` (this is how the two control corrections, Danny Jigar to `gu` and Kanulu Therichinaa Kanulu Moosinaa to `te`, were applied).
+
 ## Setup and run
 
 ```bash

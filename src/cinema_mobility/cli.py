@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from .ingest import from_imdb, title_status, build_credits
-from . import quality, review
+from . import quality, review, rules
 from .resolver import resolve_labels, TooManyFailures
 from .pipeline import load_credits, select_pairs, build_actor_year, evaluate, run_placebo
 
@@ -32,7 +32,14 @@ def _derived(args):
     status.to_parquet(i + "title_status.parquet", index=False)
     raw = pd.read_parquet(i + "credits_raw.parquet")
     if args.command == "build-credits":
-        out = build_credits(raw, status, args.out)
+        out = build_credits(raw, status)
+        active = rules.parse_rules(args.ambiguity_rules)
+        if active:
+            tbl = rules.rules_table(status, pd.read_parquet(i + "labels.parquet"))
+            out, flagged = rules.apply_rule_flags(out, tbl, active)
+            print(f"Ambiguity rules {list(active)}: {len(flagged):,} titles kept as ties only")
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        out.to_parquet(args.out, index=False)
         print(f"Wrote {len(out):,} credits ({out.title_id.nunique():,} titles, {out.actor_id.nunique():,} actors) to {args.out}")
         print(status.status.value_counts().to_string())
         return
@@ -57,6 +64,46 @@ def _derived(args):
     print(f"Wrote {args.out} ({len(dq)} rows) and {args.review_out} ({len(review):,} titles)")
     for sec in ["stage", "tier_overall", "tier_contribution", "tier_exclusive", "connectivity", "connectivity_target_actors", "eligibility_sensitivity", "unknown_by_akas_language", "unknown_by_period", "tier_by_language", "orphan_ids", "merged_ids"]:
         print("\n##", sec); print(dq[dq.section == sec].dropna(axis=1, how="all").drop(columns="section").to_string(index=False))
+
+
+def _rules(args):
+    i = "data/interim/"
+    labels = pd.read_parquet(i + "labels.parquet")
+    end_year = args.end_year or int(pd.read_parquet(getattr(args, "credits", "data/processed/credits.parquet")).year.max())
+    status = _status(end_year, _focal(argparse.Namespace(focal_languages="hi,ta,te,ml,kn")))
+    if args.command == "rules-fetch":
+        ids = None
+        if args.only:
+            ids = set(pd.read_csv(args.only, dtype=str, keep_default_na=False).tconst)
+        if args.limit:
+            foc = status[status.status.eq("kept_labeled")].title_id
+            foc = foc[foc.isin(ids)] if ids is not None else foc
+            ids = set(foc.sample(args.limit, random_state=args.seed))
+        rules.fetch_rule_data(status, labels, ids)
+        return
+    pd.set_option("display.width", 220)
+    if args.stage == "control":
+        ctl = pd.read_csv(args.control, dtype=str, keep_default_na=False)
+        tbl = rules.rules_table(status, labels, ctl.tconst)
+        ev, merged = rules.control_evaluation(tbl, ctl)
+        print(f"Control rows: {len(ctl)}; focal-labeled (rules apply): {len(tbl)}; manual ambiguity flags: {int(merged.manual.sum())}\n")
+        print(ev.round(3).to_string(index=False))
+        show = merged[merged.manual | merged.rule_any][["title_id", "primaryTitle", "manual", "rule_spoken", "rule_wikidata", "rule_disagree", "tmdb_language", "spoken", "wd_langs"]]
+        print("\nRows flagged by the manual pre-fill or by any rule:"); print(show.to_string(index=False))
+        return
+    credits = pd.read_parquet(args.credits)
+    tbl = rules.rules_table(status, labels)
+    Path(args.outdir).mkdir(parents=True, exist_ok=True)
+    tbl.to_parquet(i + "ambiguity_rules.parquet", index=False)
+    per_title = credits.groupby("title_id").size()
+    print(f"Focal-labeled titles: {len(tbl):,} ({int(per_title.reindex(tbl.title_id).sum()):,} credits); Wikidata found: {(tbl.wd_status != 'not_found').sum():,}")
+    for r in rules.RULES:
+        f = tbl[tbl[f"rule_{r}"]].title_id
+        print(f"  rule {r:9}: {len(f):>6,} titles ({len(f) / len(tbl):.1%}), {int(per_title.reindex(f).sum()):>7,} credits")
+    summary, pairs = rules.sensitivity(credits, tbl)
+    summary.to_csv(Path(args.outdir) / "ambiguity_rules_sensitivity.csv", index=False)
+    pairs.to_csv(Path(args.outdir) / "ambiguity_rules_pairs.csv", index=False)
+    print(); print(summary.to_string(index=False))
 
 
 def _review(args):
@@ -114,6 +161,10 @@ def _review(args):
     new, status, lab = review.apply_review(decisions, titles, pd.read_parquet(i + "candidates.parquet"),
                                            pd.read_parquet(i + "labels.parquet"), pd.read_parquet(i + "credits_raw.parquet"),
                                            end_year, _focal(args), args.excluded_as)
+    active = rules.parse_rules(args.ambiguity_rules)
+    if active:
+        new, flagged = rules.apply_rule_flags(new, rules.rules_table(status, pd.read_parquet(i + "labels.parquet")), active)
+        print(f"Ambiguity rules {list(active)}: {len(flagged):,} titles kept as ties only")
     ch = review.credit_changes(baseline, new)
     new.to_parquet(credits_path, index=False)
     Path(args.decisions_out).parent.mkdir(parents=True, exist_ok=True)
@@ -152,6 +203,7 @@ def main():
     bc = sub.add_parser("build-credits", help="Left-join credits to labels; unknown titles kept as ties")
     bc.add_argument("--end-year", type=int, default=None)
     bc.add_argument("--out", default="data/processed/credits.parquet")
+    bc.add_argument("--ambiguity-rules", default="none", help="none | all | comma list of spoken,wikidata,disagree (a,b,c): flagged titles stay as ties with no language")
     bc.add_argument("--focal-languages", default="hi,ta,te,ml,kn", help="comma-separated; only these can be sources/destinations")
     qr = sub.add_parser("quality-report", help="Write results/data_quality.csv, the review shortlist and connectivity")
     qr.add_argument("--end-year", type=int, default=None)
@@ -189,12 +241,24 @@ def main():
     ap.add_argument("--decisions-out", default="data/interim/review_decisions.csv")
     ap.add_argument("--labels-out", default="data/interim/labels_reviewed.parquet")
     ap.add_argument("--focal-languages", default="hi,ta,te,ml,kn")
+    ap.add_argument("--ambiguity-rules", default="none", help="none | all | comma list of spoken,wikidata,disagree (a,b,c): flagged titles stay as ties with no language")
     pf = sub.add_parser("prefill-review", help="Pre-fill a review file from TMDB + Wikipedia into a NEW file (input is never modified)")
     pf.add_argument("--input", required=True)
     pf.add_argument("--out", required=True)
     pf.add_argument("--max-year", type=int, default=2024, help="rows after this year are left empty and listed")
     pf.add_argument("--limit", type=int, help="process at most this many rows now (pilot)")
     pf.add_argument("--batch", type=int, default=50)
+    rf = sub.add_parser("rules-fetch", help="Fetch TMDB spoken_languages and Wikidata original languages for focal-labeled titles (cached, resumable)")
+    rf.add_argument("--only", help="CSV with a tconst column: fetch just these titles")
+    rf.add_argument("--limit", type=int, help="random sample size for a trial run")
+    rf.add_argument("--seed", type=int, default=42)
+    rf.add_argument("--end-year", type=int, default=None)
+    rr = sub.add_parser("rules-report", help="Evaluate the ambiguity rules on the control file, or sensitivity across the whole table")
+    rr.add_argument("--stage", choices=["control", "full"], required=True)
+    rr.add_argument("--control", default="data/review/packet/review_control_prefilled.csv")
+    rr.add_argument("--credits", default="data/processed/credits.parquet")
+    rr.add_argument("--end-year", type=int, default=None)
+    rr.add_argument("--outdir", default="results")
     pairs = sub.add_parser("select-pairs", help="Report pre-model pair event and actor support")
     pairs.add_argument("--credits", default="data/processed/credits.parquet")
     pairs.add_argument("--min-events", type=int, default=10)
@@ -224,6 +288,8 @@ def main():
         print(f"Input unchanged (sha256 verified). Rows from after {args.max_year} left empty: {len(skip)}")
         if len(skip):
             print(skip[["tconst", "primaryTitle", "year"]].to_string(index=False))
+    elif args.command in ("rules-fetch", "rules-report"):
+        _rules(args)
     elif args.command in ("review-packet", "review-agreement", "apply-review"):
         _review(args)
     elif args.command in ("build-credits", "quality-report", "make-sample"):
