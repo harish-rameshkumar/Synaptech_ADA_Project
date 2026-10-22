@@ -118,7 +118,7 @@ def wikidata_lookup(imdb_ids, cache_db=CACHE_DB, batch=100, interval=1.0, max_co
     con = _connect(cache_db)
     done = {r[0] for r in con.execute("SELECT imdb_id FROM wikidata")}
     todo = [i for i in sorted(set(imdb_ids)) if i not in done]
-    fails, t0 = 0, time.time()
+    fails, t0, skipped = 0, time.time(), 0
     for k in range(0, len(todo), batch):
         ids = todo[k:k + batch]
         q = ('SELECT ?imdb ?item ?code WHERE { VALUES ?imdb { %s } ?item wdt:P345 ?imdb . '
@@ -134,6 +134,7 @@ def wikidata_lookup(imdb_ids, cache_db=CACHE_DB, batch=100, interval=1.0, max_co
             fails = 0
         except Exception:
             fails += 1
+            skipped += 1
             if fails >= max_consecutive_failures:
                 con.commit()
                 raise TooManyFailures(f"Wikidata: {fails} consecutive failures; cache kept, rerun to resume")
@@ -157,6 +158,8 @@ def wikidata_lookup(imdb_ids, cache_db=CACHE_DB, batch=100, interval=1.0, max_co
         time.sleep(interval)
     if todo:
         print()
+    if skipped:
+        print(f"WARNING: {skipped} Wikidata batch(es) failed and were skipped; those titles stay unlabeled. Rerun to retry.")
     rows = con.execute("SELECT imdb_id, qid, language, status FROM wikidata").fetchall()
     con.close()
     return pd.DataFrame(rows, columns=["title_id", "wd_qid", "wd_language", "wd_status"])

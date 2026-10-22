@@ -51,3 +51,19 @@ def test_eligibility_accepts_non_consecutive_years():
 def test_eligibility_needs_five_credits():
     tr = _eligible_transitions(_credits([2000, 2001, 2002, 2003]))
     assert "x" not in set(tr.actor_id)
+
+
+def test_unlabeled_credits_are_ties_only_not_eligibility(tmp_path):
+    rows = [{"actor_id": "x", "title_id": f"x-{i}", "year": y, "language": "ta", "billing_order": 1}
+            for i, y in enumerate([2000, 2001, 2002, 2003, 2004])]
+    rows += [{"actor_id": "x", "title_id": f"u-{i}", "year": 2003 + i % 2, "language": None, "billing_order": 2}
+             for i in range(5)]
+    rows += [{"actor_id": "o", "title_id": "o-hi", "year": 2010, "language": "hi", "billing_order": 1}]
+    path = tmp_path / "credits.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+    credits = load_credits(path)
+    assert credits.language.isna().sum() == 5  # kept by load_credits
+    tr = _eligible_transitions(credits)
+    # 5 labeled ta credits / 10 total would fail the 70% share if unlabeled credits counted.
+    assert "x" in set(tr.actor_id)
+    build_actor_year(credits, "ta", "hi")  # no crash with unlabeled rows

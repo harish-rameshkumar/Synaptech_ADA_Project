@@ -25,12 +25,13 @@ def load_credits(path: str | Path) -> pd.DataFrame:
     df = df.copy()
     df["year"] = pd.to_numeric(df["year"], errors="coerce")
     df["billing_order"] = pd.to_numeric(df["billing_order"], errors="coerce")
-    df = df.dropna(subset=["actor_id", "title_id", "year", "language", "billing_order"])
+    # Rows with no language label (unresolved titles) are kept: they are ties only, never language events.
+    df = df.dropna(subset=["actor_id", "title_id", "year", "billing_order"])
     df["year"] = df["year"].astype(int)
     df["billing_order"] = df["billing_order"].astype(int)
     df["actor_id"] = df["actor_id"].astype(str)
     df["title_id"] = df["title_id"].astype(str)
-    df["language"] = df["language"].astype(str).str.lower().str.strip()
+    df["language"] = df["language"].where(df["language"].isna(), df["language"].astype(str).str.lower().str.strip())
     def as_bool(series):
         return series.fillna(False).map(lambda x: x if isinstance(x, (bool, np.bool_)) else str(x).strip().lower() in {"1", "true", "yes", "y"})
     if "is_dubbed" in df:
@@ -59,7 +60,11 @@ def select_pairs(credits: pd.DataFrame, min_events: int = 10, min_at_risk: int =
 
 
 def _eligible_transitions(credits: pd.DataFrame) -> pd.DataFrame:
-    """Find first year an actor qualifies in S and first clean D credit thereafter."""
+    """Find first year an actor qualifies in S and first clean D credit thereafter.
+
+    Unlabeled credits are ignored here, so they count toward neither eligibility nor the share threshold.
+    """
+    credits = credits[credits.language.notna()]
     rows = []
     observation_end = int(credits.year.max())
     language_universe = sorted(credits.language.unique())
@@ -109,8 +114,10 @@ def build_actor_year(credits: pd.DataFrame, source: str | None = None,
         transitions = transitions[transitions.destination.eq(destination.lower())]
     if transitions.empty:
         raise ValueError("No eligible actor-language-pair risk sets; inspect credits or relax pre-model data-quality thresholds.")
+    # Ties use every credit, including unlabeled titles; language events and features use labeled credits only.
+    tie_credits, credits = credits, credits[credits.language.notna()]
     # Historical collaborator ties, indexed by target actor and collaborator, with repeated-credit strength.
-    title_cast = credits.groupby("title_id").agg(year=("year", "min"), actors=("actor_id", lambda x: sorted(set(x)))).reset_index()
+    title_cast = tie_credits.groupby("title_id").agg(year=("year", "min"), actors=("actor_id", lambda x: sorted(set(x)))).reset_index()
     edge_rows = []
     for row in title_cast.itertuples(index=False):
         for a, b in combinations(row.actors, 2):
