@@ -197,11 +197,11 @@ def decide(row, tm, wk):
         parts.append(f"Wikipedia '{wk['page']}' ({wk['match']}) infobox language unparseable ({wk['raw'] or 'empty'})")
     else:
         parts.append("Wikipedia: no film article found")
-    # explicit dub marker in titles/overview
-    text = " ".join([row["primaryTitle"], (tm or {}).get("title") or "", (tm or {}).get("overview", "")])
+    # explicit dub marker in the entry's own title (an overview mentioning a dubbed version does not count)
+    text = " ".join([row["primaryTitle"], (tm or {}).get("title") or ""])
     if re.search(r"\bdub(bed)?\b", text, flags=re.I):
         dubbed = 1
-        parts.append("title/overview text says dubbed")
+        parts.append("entry title says dubbed")
     # --- reduce to claims
     t_multi = len((set(t_spoken) & INDIAN)) >= 2
     w_multi = w_ok and wk["match"] == "id" and len(set(wk["languages"]) & INDIAN) >= 2

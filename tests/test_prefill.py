@@ -46,3 +46,9 @@ def test_unknown_label_filled_only_from_id_verified_wikipedia():
 
 def test_language_name_parsing():
     assert _lang_codes("Telugu<ref>x Tamil</ref> / Hindi") == ["hi", "te"]
+
+
+def test_dub_flag_needs_the_entry_title_not_the_overview():
+    tm = {"original": "te", "spoken": ["te"], "title": "Film", "overview": "The film is dubbed into Hindi."}
+    assert d(tm=tm)[0] == "0"
+    assert d(row={"primaryTitle": "Film (Hindi Dubbed)"}, tm={"original": "te", "spoken": ["te"], "title": "Film"})[0] == "1"
