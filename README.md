@@ -63,14 +63,16 @@ Three rules flag focal-language titles whose single language label may mislead. 
 |---|---|
 | `spoken` (a) | TMDB `spoken_languages` contains two or more of hi, ta, te, ml, kn |
 | `wikidata` (b) | Wikidata lists two or more original languages (P364) |
+| `spoken_wiki` (a2) | rule (a) **and** the English Wikipedia film infobox (article found via its IMDb link) also lists two or more focal languages; no IMDb-matched article means not flagged |
 | `wikidata_focal` (b-focal, `bf`) | Wikidata lists two or more of hi, ta, te, ml, kn as original languages (en and other non-focal languages ignored) |
 | `disagree` (c) | TMDB `original_language` is not among Wikidata's original languages (both present) |
 
 ```bash
-cinema-mobility rules-fetch [--only FILE | --limit N]     # cached, resumable: ~16k TMDB detail calls + ~190 Wikidata batches for the full table
+cinema-mobility rules-fetch [--only FILE | --limit N] [--wikipedia]     # --wikipedia adds the infobox lookups for rule a2 (only titles flagged by rule a; ~1 request per 1.5 s, about 70 min for 448 titles)
+# cached, resumable: ~16k TMDB detail calls + ~190 Wikidata batches for the full table
 cinema-mobility rules-report --stage control               # precision/recall of the rules against the control file's ambiguity flags
 cinema-mobility rules-report --stage full                  # titles/credits flagged per rule + all 8 on/off combinations -> results/ambiguity_rules_sensitivity.csv, results/ambiguity_rules_pairs.csv
-cinema-mobility build-credits --ambiguity-rules none|all|spoken,wikidata,wikidata_focal,disagree      # also on apply-review
+cinema-mobility build-credits --ambiguity-rules none|all|spoken,spoken_wiki,wikidata,wikidata_focal,disagree      # also on apply-review
 ```
 
 Flagged titles **stay in `credits.parquet` as collaboration ties with no language** (`label_source = rule_ambiguous`), so they never create language events and, by default, drop out of the 70% share denominator. The default is `none`: nothing changes until a rule set is chosen, and `rules-report --stage full` reports every combination for the sensitivity analysis. The control comparison measures agreement with the pre-fill's evidence-based flags, not accuracy against a hand review. Titles relabelled by manual review (`label_source = reviewed`) are outside the rules because they have no TMDB/Wikidata evidence to apply them to.
@@ -84,6 +86,7 @@ Single corrections from a pre-fill can be applied through the normal review path
 | version | file | rules | use |
 |---|---|---|---|
 | `final` | `credits_final.parquet` | `spoken` + `wikidata_focal` + `disagree`, plus the 2 control corrections | **primary analysis** |
+| `final_v2` | `credits_final_v2.parquet` | `spoken_wiki` (a2) + `wikidata_focal` + `disagree`, plus the 2 corrections | candidate primary (refined rule a) |
 | `baseline` | `credits.parquet` | none (includes the 2 control corrections) | sensitivity: no rules |
 | `pre_review` | `credits_pre_review.parquet` | none, no corrections | audit |
 | `sample_final` | `credits_final_sample.parquet` | as `final` | development (~5,000 credits) |
