@@ -73,9 +73,9 @@ def _eligible_transitions(credits: pd.DataFrame) -> pd.DataFrame:
             for year in sorted(g.year.unique()):
                 prior = g[g.year.le(year)]
                 source_prior = prior[prior.language.eq(s)]
-                span = int(source_prior.year.max() - source_prior.year.min()) if len(source_prior) else 0
+                distinct_years = int(source_prior.year.nunique())
                 share = len(source_prior) / max(1, len(prior))
-                if len(source_prior) >= 5 and span >= 3 and share >= .70:
+                if len(source_prior) >= 5 and distinct_years >= 3 and share >= .70:
                     qualifying_year = int(year)
                     break
             if qualifying_year is None:
@@ -93,7 +93,9 @@ def _eligible_transitions(credits: pd.DataFrame) -> pd.DataFrame:
                              "qualifying_year": qualifying_year, "event_year": event_year,
                              "first_observed_year": int(g.year.min()),
                              "last_observed_year": observation_end})
-    return pd.DataFrame(rows).drop_duplicates(["actor_id", "source", "destination"])
+    cols = ["actor_id", "source", "destination", "qualifying_year", "event_year",
+            "first_observed_year", "last_observed_year"]
+    return pd.DataFrame(rows, columns=cols).drop_duplicates(["actor_id", "source", "destination"])
 
 
 def build_actor_year(credits: pd.DataFrame, source: str | None = None,

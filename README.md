@@ -7,7 +7,7 @@ A reproducible research pipeline for studying whether recent collaborator transi
 - IMDb principal-cast ingestion for feature films and TV movies, restricted to top 10 billed actors.
 - TMDB `/find/{imdb_id}` language lookup with a local SQLite cache (`TMDB_API_KEY` required); metadata remains subject to manual review.
 - Reviewed language labels can exclude dubbed releases and ambiguous bilingual/multilingual titles.
-- Actor-language risk sets using the one-pager's thresholds: at least five principal credits in source language across at least three years, at least 70% of observed prior credits in that source language, and no prior destination credit.
+- Actor-language risk sets using the one-pager's thresholds: at least five principal credits in the source language across at least three *distinct calendar years* (a count of distinct years, not a max-minus-min span, and the years need not be consecutive), at least 70% of observed prior credits in that source language, and no prior destination credit.
 - Time-varying collaboration ties and lagged 1-3 year exposure, with a stricter two-year-lag sensitivity option; a collaborator must have had an existing tie with the actor before their own first destination-language credit. Same-year moves do not count as exposure.
 - Career-only vs career-plus-network discrete-time logistic models, chronological holdout, AUPRC / ROC-AUC / Brier score, and a lead-exposure placebo.
 
