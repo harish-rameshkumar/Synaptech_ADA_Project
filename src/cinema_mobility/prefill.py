@@ -174,7 +174,7 @@ def wiki_facts(net, tconst, title, year, deadline):
 
 
 def decide(row, tm, wk):
-    """Apply the policy; returns (is_dubbed, is_ambiguous, corrected_language, confidence, notes)."""
+    """Apply the policy (ambiguous only for a source conflict or a source saying bilingual/multilingual); returns (is_dubbed, is_ambiguous, corrected_language, confidence, notes)."""
     cur = (row["language"] or "").strip().lower()
     src = row["current_label_source"]
     parts, dubbed, ambig, corrected = [], 0, 0, ""
@@ -245,13 +245,9 @@ def decide(row, tm, wk):
             parts.append("no evidence found")
         else:
             conf = "low"
-    # akas in several languages: usually dubbed releases. Flag only when the sources do not settle the language.
-    if "multi_language_akas" in row["reason"] and not ambig:
-        if conf == "low":
-            ambig = 1
-            parts.append("akas in several languages and no source settles it")
-        else:
-            parts.append("akas in several languages (likely dubbed releases); sources agree on one original language")
+    # akas in several languages are usually dubbed releases: noted for the reviewer, never a reason to flag.
+    if "multi_language_akas" in row["reason"]:
+        parts.append("akas in several languages (likely dubbed releases; not a reason to flag)")
     if dubbed and t_orig and cur and t_orig != cur:
         corrected = t_orig
     if dubbed:

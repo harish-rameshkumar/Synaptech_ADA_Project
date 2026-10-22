@@ -32,11 +32,10 @@ def test_no_evidence_leaves_label_and_says_so():
     assert (dub, amb, corr, conf) == ("0", "0", "", "low") and "no evidence found" in note
 
 
-def test_multi_akas_only_flags_when_sources_do_not_settle():
-    _, amb, *_ = d(row={"reason": "multi_language_akas"})  # nothing found at all, label kept
-    assert amb == "1"
-    _, amb, *_ = d(row={"reason": "multi_language_akas"}, tm={"original": "te", "spoken": ["te"]})
-    assert amb == "0"
+def test_multi_language_akas_alone_never_flag_ambiguous():
+    for tm in ({}, {"original": "te", "spoken": ["te"]}):
+        _, amb, _, _, note = d(row={"reason": "multi_language_akas"}, tm=tm)
+        assert amb == "0" and "likely dubbed" in note
 
 
 def test_unknown_label_filled_only_from_id_verified_wikipedia():
