@@ -43,6 +43,18 @@ cinema-mobility make-sample                        # data/processed/credits_samp
 - `language_labels_review.csv` lists likely dubbed or ambiguous kept titles, ranked by ties lost if the title were dropped, then actors; fill `is_dubbed` / `is_ambiguous` and the pipeline's `load_credits` honours them once merged back onto the credits.
 - The sample is built from whole title casts around eligible actors so ties survive. It holds ids, years, billing and labels only. IMDb data remains subject to IMDb's non-commercial license, so share it only within the project team.
 
+## Manual review workflow
+
+```bash
+cinema-mobility review-packet                     # data/review/packet/: review_A/B/C.csv, review_control.csv, packet_key.csv, CODEBOOK.md
+# reviewers fill is_dubbed / is_ambiguous (1/0) per docs/review_codebook.md and return <name>_reviewed.csv
+cinema-mobility review-agreement --reviewed A_reviewed.csv B_reviewed.csv C_reviewed.csv --control control_reviewed.csv
+cinema-mobility apply-review --reviewed A_reviewed.csv B_reviewed.csv C_reviewed.csv [--control file] [--excluded-as ties|drop]
+```
+
+- The top 1,500 titles by impact are dealt round-robin into three files of 500. A shared overlap set of 100 titles (random, drawn from below the top block) is added to every file, unmarked, so `review-agreement` can report Fleiss' kappa (plus pairwise Cohen's) for `is_dubbed`, `is_ambiguous` and the combined exclude decision. 200 more random titles from the rest form the control file; the share of them a reviewer would exclude estimates the error rate left in the ~3,900 unreviewed titles (Wilson 95% interval).
+- `apply-review` takes a strict majority per field across reviewers; a split vote is a conflict and is excluded as ambiguous. An optional `corrected_language` replaces the label (`label_source = reviewed`). Excluded titles stay in `credits.parquet` as collaboration ties with no language (`label_source = review_excluded`); `--excluded-as drop` removes their credits instead. It rebuilds `credits.parquet` from the original labels (so it can be rerun as reviews come in), keeps the pre-review table in `data/processed/credits_pre_review.parquet`, prints how many titles and credits changed, refuses to write to any reviewed file and verifies their checksums afterwards.
+
 ## Setup and run
 
 ```bash

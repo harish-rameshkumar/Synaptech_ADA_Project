@@ -1,9 +1,10 @@
 from __future__ import annotations
 import argparse
 from pathlib import Path
+import numpy as np
 import pandas as pd
 from .ingest import from_imdb, title_status, build_credits
-from . import quality
+from . import quality, review
 from .resolver import resolve_labels, TooManyFailures
 from .pipeline import load_credits, select_pairs, build_actor_year, evaluate, run_placebo
 
@@ -58,6 +59,79 @@ def _derived(args):
         print("\n##", sec); print(dq[dq.section == sec].dropna(axis=1, how="all").drop(columns="section").to_string(index=False))
 
 
+def _review(args):
+    if args.command == "review-packet":
+        info = review.make_packet(args.review_csv, args.outdir, [x.strip() for x in args.reviewers.split(",")],
+                                  args.top, args.overlap, args.control, args.seed)
+        print(f"Wrote packet to {args.outdir}: {info['per_reviewer']} rows per reviewer "
+              f"({info['unique_each']} unique + {info['overlap']} shared), control {info['control']}, "
+              f"{info['unreviewed']} titles left unreviewed. Keep packet_key.csv private.")
+        return
+    files = [Path(f).resolve() for f in args.reviewed + ([args.control] if getattr(args, "control", None) else [])]
+    for f in files:
+        if not f.is_file():
+            raise SystemExit(f"reviewed file not found: {f}")
+    hashes = {f: review.sha256(f) for f in files}
+    def guard(*outs):
+        for o in outs:
+            if Path(o).resolve() in hashes:
+                raise SystemExit(f"refusing to write {o}: it is a reviewed input file")
+    if args.command == "review-agreement":
+        guard(args.out)
+        reviews = [review.read_review(f) for f in [Path(x).resolve() for x in args.reviewed]]
+        key = pd.read_csv(args.key) if Path(args.key).exists() else None
+        overlap = set(key[key.set == "overlap"].tconst) if key is not None else set.intersection(*[set(r.tconst) for r in reviews])
+        rep = review.agreement_report([r[r.tconst.isin(overlap)] for r in reviews])
+        print(f"Overlap titles: {len(overlap)}; reviewers: {len(reviews)}")
+        print(rep.round(3).to_string(index=False))
+        if args.control and key is not None:
+            ctl = review.consensus(review.read_review(args.control))
+            err = review.control_error_rate(ctl, int((key.set == "unreviewed").sum()))
+            if err:
+                print("\nControl sample (random titles below the reviewed block):")
+                print(f"  {err['n_flagged']}/{err['n_control_reviewed']} excluded = {err['error_rate']:.1%} "
+                      f"(95% CI {err['ci_low']:.1%}-{err['ci_high']:.1%})")
+                print(f"  expected exclusions among the {err['n_unreviewed_titles']:,} unreviewed titles: "
+                      f"{err['expected_flagged_unreviewed']:.0f} ({err['expected_low']:.0f}-{err['expected_high']:.0f})")
+                rep = pd.concat([rep, pd.DataFrame([{"field": "control_error_rate", "n_titles": err["n_control_reviewed"],
+                                                     "positive_rate": err["error_rate"], "pct_agree": np.nan}])])
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        rep.to_csv(args.out, index=False)
+        return
+    # apply-review
+    guard(args.credits, args.baseline, args.decisions_out, args.labels_out)
+    i = "data/interim/"
+    votes = pd.concat([review.read_review(f) for f in files])
+    decisions = review.consensus(votes)
+    credits_path, baseline_path = Path(args.credits), Path(args.baseline)
+    if not baseline_path.exists():
+        baseline_path.parent.mkdir(parents=True, exist_ok=True)
+        baseline_path.write_bytes(credits_path.read_bytes())
+        print(f"Saved pre-review credits to {baseline_path}")
+    baseline = pd.read_parquet(baseline_path)
+    end_year = args.end_year or int(baseline.year.max())
+    titles = pd.read_parquet(i + "titles.parquet")
+    new, status, lab = review.apply_review(decisions, titles, pd.read_parquet(i + "candidates.parquet"),
+                                           pd.read_parquet(i + "labels.parquet"), pd.read_parquet(i + "credits_raw.parquet"),
+                                           end_year, _focal(args), args.excluded_as)
+    ch = review.credit_changes(baseline, new)
+    new.to_parquet(credits_path, index=False)
+    Path(args.decisions_out).parent.mkdir(parents=True, exist_ok=True)
+    decisions.to_csv(args.decisions_out, index=False)
+    lab.to_parquet(args.labels_out, index=False)
+    assert all(review.sha256(f) == h for f, h in hashes.items()), "a reviewed file changed during apply-review"
+    d = decisions[decisions.reviewed.astype(bool)]
+    unknown = int((~d.tconst.isin(titles.title_id)).sum())
+    print(f"Reviewed titles: {len(d):,} (from {len(files)} files; {unknown} not in the titles table)")
+    print(f"  dubbed {int(d.is_dubbed.sum())}, ambiguous {int(d.is_ambiguous.sum())}, split-vote conflicts {int(d.conflict.sum())}, "
+          f"language corrections {int((d.corrected_language.notna() & ~d.exclude).sum())}")
+    print(f"  excluded titles: {int(d.exclude.sum()):,} ({'kept as ties, no language' if args.excluded_as == 'ties' else 'credits dropped'})")
+    print(f"Credits table rebuilt with end-year {end_year}: {ch['credits_before']:,} -> {ch['credits_after']:,} credits")
+    print(f"  titles changed {ch['titles_changed']:,} ({ch['titles_to_ties_only']:,} to ties only, {ch['titles_relabelled']:,} relabelled)")
+    print(f"  credits changed {ch['credits_changed']:,} ({ch['credits_removed']:,} removed); actors affected {ch['actors_affected']:,}")
+    print("Reviewed files verified unchanged (sha256).")
+
+
 def main():
     p = argparse.ArgumentParser(prog="cinema-mobility")
     sub = p.add_subparsers(dest="command", required=True)
@@ -91,6 +165,30 @@ def main():
     sm.add_argument("--n", type=int, default=5000)
     sm.add_argument("--seed", type=int, default=42)
     sm.add_argument("--out", default="data/processed/credits_sample.parquet")
+    rp = sub.add_parser("review-packet", help="Split the review shortlist into per-reviewer files, overlap set and control sample")
+    rp.add_argument("--review-csv", default="data/raw/language_labels_review.csv")
+    rp.add_argument("--outdir", default="data/review/packet")
+    rp.add_argument("--reviewers", default="A,B,C", help="comma-separated reviewer names (file suffixes)")
+    rp.add_argument("--top", type=int, default=1500)
+    rp.add_argument("--overlap", type=int, default=100)
+    rp.add_argument("--control", type=int, default=200)
+    rp.add_argument("--seed", type=int, default=42)
+    ra = sub.add_parser("review-agreement", help="Fleiss/Cohen kappa on the overlap set and error rate from the control sample")
+    ra.add_argument("--reviewed", nargs="+", required=True, help="the reviewers' returned files")
+    ra.add_argument("--control", help="reviewed control file")
+    ra.add_argument("--key", default="data/review/packet/packet_key.csv")
+    ra.add_argument("--out", default="results/review_agreement.csv")
+    ap = sub.add_parser("apply-review", help="Merge reviewed CSVs into the labels and rebuild credits.parquet (reviewed files are read-only)")
+    ap.add_argument("--reviewed", nargs="+", required=True)
+    ap.add_argument("--excluded-as", choices=["ties", "drop"], default="ties",
+                    help="ties: dubbed/ambiguous titles stay as collaboration ties with no language; drop: remove their credits")
+    ap.add_argument("--end-year", type=int, default=None, help="default: the max year already in the credits table")
+    ap.add_argument("--credits", default="data/processed/credits.parquet")
+    ap.add_argument("--baseline", default="data/processed/credits_pre_review.parquet",
+                    help="pre-review credits; copied from --credits the first time, then reused so reruns are idempotent")
+    ap.add_argument("--decisions-out", default="data/interim/review_decisions.csv")
+    ap.add_argument("--labels-out", default="data/interim/labels_reviewed.parquet")
+    ap.add_argument("--focal-languages", default="hi,ta,te,ml,kn")
     pairs = sub.add_parser("select-pairs", help="Report pre-model pair event and actor support")
     pairs.add_argument("--credits", default="data/processed/credits.parquet")
     pairs.add_argument("--min-events", type=int, default=10)
@@ -112,6 +210,8 @@ def main():
     if args.command == "ingest":
         df = from_imdb(args.principals, args.basics, args.languages, args.out)
         print(f"Wrote {len(df):,} principal credits to {args.out}")
+    elif args.command in ("review-packet", "review-agreement", "apply-review"):
+        _review(args)
     elif args.command in ("build-credits", "quality-report", "make-sample"):
         _derived(args)
     elif args.command == "resolve-labels":
