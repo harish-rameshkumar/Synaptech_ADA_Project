@@ -189,6 +189,12 @@ def main():
     ap.add_argument("--decisions-out", default="data/interim/review_decisions.csv")
     ap.add_argument("--labels-out", default="data/interim/labels_reviewed.parquet")
     ap.add_argument("--focal-languages", default="hi,ta,te,ml,kn")
+    pf = sub.add_parser("prefill-review", help="Pre-fill a review file from TMDB + Wikipedia into a NEW file (input is never modified)")
+    pf.add_argument("--input", required=True)
+    pf.add_argument("--out", required=True)
+    pf.add_argument("--max-year", type=int, default=2024, help="rows after this year are left empty and listed")
+    pf.add_argument("--limit", type=int, help="process at most this many rows now (pilot)")
+    pf.add_argument("--batch", type=int, default=50)
     pairs = sub.add_parser("select-pairs", help="Report pre-model pair event and actor support")
     pairs.add_argument("--credits", default="data/processed/credits.parquet")
     pairs.add_argument("--min-events", type=int, default=10)
@@ -210,6 +216,14 @@ def main():
     if args.command == "ingest":
         df = from_imdb(args.principals, args.basics, args.languages, args.out)
         print(f"Wrote {len(df):,} principal credits to {args.out}")
+    elif args.command == "prefill-review":
+        from .prefill import prefill
+        before = review.sha256(args.input)
+        d, skip = prefill(args.input, args.out, max_year=args.max_year, limit=args.limit, batch=args.batch)
+        assert review.sha256(args.input) == before, "input file changed"
+        print(f"Input unchanged (sha256 verified). Rows from after {args.max_year} left empty: {len(skip)}")
+        if len(skip):
+            print(skip[["tconst", "primaryTitle", "year"]].to_string(index=False))
     elif args.command in ("review-packet", "review-agreement", "apply-review"):
         _review(args)
     elif args.command in ("build-credits", "quality-report", "make-sample"):
