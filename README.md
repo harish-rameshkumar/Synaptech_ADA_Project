@@ -85,9 +85,9 @@ Single corrections from a pre-fill can be applied through the normal review path
 
 | version | file | rules | use |
 |---|---|---|---|
-| `final` | `credits_final.parquet` | `spoken` + `wikidata_focal` + `disagree`, plus the 2 control corrections | **primary analysis** |
-| `final_v2` | `credits_final_v2.parquet` | `spoken_wiki` (a2) + `wikidata_focal` + `disagree`, plus the 2 corrections | candidate primary (refined rule a) |
-| `baseline` | `credits.parquet` | none (includes the 2 control corrections) | sensitivity: no rules |
+| `final` | `credits_final.parquet` | `spoken` + `wikidata_focal` + `disagree`, plus the 2 control corrections | sensitivity (first rule set, a + b-focal + c) |
+| `final_v2` | `credits_final_v2.parquet` | `spoken_wiki` (a2) + `wikidata_focal` + `disagree`, plus the 2 corrections | **primary analysis** (refined rule a2) |
+| `baseline` | `credits.parquet` | none (includes the 2 control corrections) | sensitivity (no rules) |
 | `pre_review` | `credits_pre_review.parquet` | none, no corrections | audit |
 | `sample_final_v2` | `credits_final_v2_sample.parquet` | as `final_v2` | development (~5,000 credits) |
 | `sample_final` | `credits_final_sample.parquet` | as `final` | development (~5,000 credits) |

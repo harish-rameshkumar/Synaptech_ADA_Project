@@ -33,4 +33,4 @@ def test_data_versions_lists_each_file_with_rule_counts(tmp_path):
     assert v.loc["baseline", "focal_language_credits"] == 1 and v.loc["final", "focal_language_credits"] == 0
     assert v.loc["final", "rule_flagged_credits"] == 1 and v.loc["final", "rule_flagged_titles"] == 1
     assert v.loc["final", "tie_only_credits"] == 2 and v.loc["final", "other_language_credits"] == 1
-    assert v.loc["final", "use_for"] == "PRIMARY analysis" and len(v.loc["final", "sha256"]) == 64
+    assert v.loc["final", "use_for"] == "sensitivity (first rule set, a + b-focal + c)" and len(v.loc["final", "sha256"]) == 64
