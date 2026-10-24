@@ -1,19 +1,23 @@
 # Do Collaborator Moves Predict Cross-Language Career Entry?
 
-A reproducible research pipeline for studying whether recent collaborator transitions predict an actor's first clean entry into another Indian film language. The estimand is **predictive association**, not causal influence.
+A reproducible research pipeline for studying whether collaborators' prior cross-language career entries predict an actor's first clean entry into another Indian film language. The estimand is **predictive association**, not causal influence.
 
 ## What is implemented
 
 - IMDb principal-cast ingestion for feature films and TV movies, restricted to top 10 billed actors.
-- Tiered original-language labels in `label_source`: **T1** TMDB `/find/{imdb_id}` (movie match preferred over TV), **T2** Wikidata by IMDb ID (P345) original language (P364), else **unknown**. Every lookup is cached in SQLite so reruns resume (`TMDB_API_KEY` in `.env`). `title.akas` is *not* a labelling tier (its original-title rows carry no language); it is used only to shortlist candidate titles (region `IN` or an hi/ta/te/ml/kn aka) and to flag likely dubbed/ambiguous titles. Cast is never used to infer language. Metadata remains subject to manual review.
-- Reviewed language labels can exclude dubbed releases and ambiguous bilingual/multilingual titles.
+- Tiered original-language labels in `label_source`: **T1** TMDB `/find/{imdb_id}` (movie match preferred over TV), **T2** Wikidata by IMDb ID (P345) original language (P364), else **unknown**. Every lookup is cached in SQLite so reruns resume (`TMDB_API_KEY` in `.env`). `title.akas` is *not* a labelling tier (its original-title rows carry no language); it is used only to shortlist candidate titles (region `IN` or an hi/ta/te/ml/kn aka) and to flag likely dubbed/ambiguous titles. Cast is never used to infer language. Titles with unknown language remain graph ties but are excluded from language events. The final-v2 review list is not a completed manual review log; see [data provenance](docs/data_provenance.md).
+- Resolved original-language labels create language events; unknown and rule-ambiguous titles remain graph ties but do not create events.
 - Actor-language risk sets using the one-pager's thresholds: at least five principal credits in the source language across at least three *distinct calendar years* (a count of distinct years, not a max-minus-min span, and the years need not be consecutive), at least 70% of observed prior credits in that source language, and no prior destination credit.
-- Time-varying collaboration ties and lagged 1-3 year exposure, with a stricter two-year-lag sensitivity option; a collaborator must have had an existing tie with the actor before their own first destination-language credit. Same-year moves do not count as exposure.
-- Career-only vs career-plus-network discrete-time logistic models, chronological holdout, AUPRC / ROC-AUC / Brier score, and a lead-exposure placebo.
+- Cumulative prior collaboration, X→D, and S→D exposure features; same-year transitions do not count as prior exposure.
+- Three pooled discrete-time hazard models, pair fixed effects, actor-clustered coefficient inference, actor-bootstrap test-metric intervals, pre-model temporal coverage tables, timing permutation, and a network lead placebo.
+
+## Pooled hazard models
+
+The integrated modeling implementation is in `src/cinema_mobility/modeling/`. Run `cinema-mobility-model preflight` first to create event-by-year and label-coverage tables. Choose and record the train/validation/test boundaries from those tables before fitting models. The `analyze` command requires both boundary years and has no default split. Full commands and sensitivity steps are in [`docs/modeling.md`](docs/modeling.md).
 
 ## Data and language review
 
-1. Obtain the IMDb non-commercial TSV datasets (`title.basics.tsv.gz`, `title.principals.tsv.gz`). Respect IMDb's data license and terms.
+1. Obtain the IMDb non-commercial TSV datasets (`title.basics.tsv.gz`, `title.principals.tsv.gz`). Respect IMDb's non-commercial terms and use the required attribution in [`docs/data_provenance.md`](docs/data_provenance.md).
 2. Prepare `data/raw/language_labels.csv` with columns:
    - `tconst`: IMDb title ID
    - `language`: reviewed ISO-639-1 language code (e.g. `hi`, `ta`, `te`, `ml`, `kn`, `bn`, `mr`, `pa`)
@@ -40,7 +44,7 @@ cinema-mobility make-sample                        # data/processed/credits_samp
 
 - `credits.parquet` keeps (a) titles labeled with a focal language, (b) titles resolved to **other** languages, kept with their label so the source-share denominator and other-language features are correct, and (c) candidate titles whose language is unknown (`language` null, `label_source = unknown`). Unknown titles are collaboration ties only: they never create language events and, by default, are excluded from the 70% share denominator (`qualifying_years(..., count_unknown=True)` and the report's `eligibility_sensitivity` section show the effect of counting them). Only the **focal languages** (`--focal-languages`, default hi,ta,te,ml,kn) can be sources or destinations in risk sets and the pair screen; other resolved languages never are. Titles never sent to TMDB (no IN-region or focal-language aka) and titles after `--end-year` (we use 2024) are dropped; a 2,000-title recall check found 0.05% target-language titles outside the candidate rule.
 - `results/data_quality.csv` is a long table (`section`, `key1`, `key2`, counts, `share`, `note`) with titles dropped per stage, match rate per tier overall / by language / by year, unknown concentration flags, per-tier actor and tie contribution, merged/orphan ID evidence and graph connectivity.
-- `language_labels_review.csv` lists likely dubbed or ambiguous kept titles, ranked by ties lost if the title were dropped, then actors; fill `is_dubbed` / `is_ambiguous` and the pipeline's `load_credits` honours them once merged back onto the credits.
+- `language_labels_review.csv` is a 5,672-title review shortlist, not a completed review log; blank `is_dubbed` / `is_ambiguous` fields are expected. Final-v2 ambiguity is rule-based. Only two control-sample label corrections were applied; see [data provenance](docs/data_provenance.md).
 - The sample is built from whole title casts around eligible actors so ties survive. It holds ids, years, billing and labels only. IMDb data remains subject to IMDb's non-commercial license, so share it only within the project team.
 
 ## Manual review workflow
@@ -75,7 +79,7 @@ cinema-mobility rules-report --stage full                  # titles/credits flag
 cinema-mobility build-credits --ambiguity-rules none|all|spoken,spoken_wiki,wikidata,wikidata_focal,disagree      # also on apply-review
 ```
 
-Flagged titles **stay in `credits.parquet` as collaboration ties with no language** (`label_source = rule_ambiguous`), so they never create language events and, by default, drop out of the 70% share denominator. The default is `none`: nothing changes until a rule set is chosen, and `rules-report --stage full` reports every combination for the sensitivity analysis. The control comparison measures agreement with the pre-fill's evidence-based flags, not accuracy against a hand review. Titles relabelled by manual review (`label_source = reviewed`) are outside the rules because they have no TMDB/Wikidata evidence to apply them to.
+Flagged titles **stay in `credits.parquet` as collaboration ties with no language** (`label_source = rule_ambiguous`), so they never create language events and, by default, drop out of the 70% share denominator. The default is `none`: nothing changes until a rule set is chosen, and `rules-report --stage full` reports every combination for the sensitivity analysis. For the frozen final-v2 dataset, the 200-title control sample was pre-filled with AI assistance, 29 rows received a blinded second-model cross-check, and all six disagreements were human-adjudicated. These steps did not constitute a full review of the 5,672-title shortlist. The TA's decision on AI-assisted labeling with rule-based exclusion is pending.
 
 Single corrections from a pre-fill can be applied through the normal review path: put them in a CSV with `tconst, is_dubbed, is_ambiguous, corrected_language` and run `apply-review --reviewed that.csv` (this is how the two control corrections, Danny Jigar to `gu` and Kanulu Therichinaa Kanulu Moosinaa to `te`, were applied).
 
@@ -85,9 +89,9 @@ Single corrections from a pre-fill can be applied through the normal review path
 
 | version | file | rules | use |
 |---|---|---|---|
-| `final` | `credits_final.parquet` | `spoken` + `wikidata_focal` + `disagree`, plus the 2 control corrections | sensitivity (first rule set, a + b-focal + c) |
-| `final_v2` | `credits_final_v2.parquet` | `spoken_wiki` (a2) + `wikidata_focal` + `disagree`, plus the 2 corrections | **primary analysis** (refined rule a2) |
-| `baseline` | `credits.parquet` | none (includes the 2 control corrections) | sensitivity (no rules) |
+| `final` | `credits_final.parquet` | `spoken` + `wikidata_focal` + `disagree`, plus the 2 control corrections | sensitivity: broader ambiguity rule |
+| `final_v2` | `credits_final_v2.parquet` | `spoken_wiki` (a2) + `wikidata_focal` + `disagree`, plus the 2 corrections | **primary** |
+| `baseline` | `credits.parquet` | none (includes the 2 control corrections) | sensitivity: no rules |
 | `pre_review` | `credits_pre_review.parquet` | none, no corrections | audit |
 | `sample_final_v2` | `credits_final_v2_sample.parquet` | as `final_v2` | development (~5,000 credits) |
 | `sample_final` | `credits_final_sample.parquet` | as `final` | development (~5,000 credits) |
@@ -96,7 +100,7 @@ Single corrections from a pre-fill can be applied through the normal review path
 All versions have the same credits, titles and actors (they differ only in the `language` / `label_source` of flagged titles), so results are directly comparable. `credits_final` was built with
 `apply-review --reviewed data/review/corrections_control.csv --credits data/processed/credits_final.parquet --baseline data/processed/credits_pre_review.parquet --ambiguity-rules spoken,wikidata_focal,disagree`; `credits.parquet` is never modified by it. Flagged titles carry `label_source = rule_ambiguous` and `language` null; run any pipeline command on either file with `--credits`.
 
-`results/data_quality.csv` reports the final numbers: the control-sample validation (existing labels changed 0/157, 95% CI 0-2.4%), the candidate-rule recall check (1/2000), baseline-vs-final connectivity, per-rule flags, rule precision/recall on the control rows, and the effect of every rule combination on eligibility and the pair screen (`rule_effect`, from `rules-report --stage full`).
+`docs/data_quality_final_v2.csv` reports final-v2-only figures, including match rates by tier, year and language. It supersedes the older `data_quality.csv`. The corrected six-page data section is [`docs/data_section.pdf`](docs/data_section.pdf), and title-ID limitations are in [`docs/id_checks.md`](docs/id_checks.md).
 
 ## Setup and run
 
@@ -112,24 +116,28 @@ cinema-mobility ingest \
   --basics /path/to/title.basics.tsv.gz \
   --languages data/raw/language_labels.csv
 
-cinema-mobility select-pairs --min-events 10 --min-risk-years 100
-# Review results/pair_screen.csv before modeling and pre-register chosen pairs.
-cinema-mobility build --source ta --destination hi
-# Sensitivity: require at least a 2-year collaborator lead
-cinema-mobility build --source ta --destination hi --min-exposure-lag 2 --out data/processed/actor_year_lag2.parquet
-cinema-mobility analyze --split-year 2018
+cinema-mobility-model preflight --credits data/processed/credits_final_v2.parquet \
+  --outdir results/modeling/preflight
+# Lock the train and validation end years from these model-free tables first.
+cinema-mobility-model build --credits data/processed/credits_final_v2.parquet \
+  --out results/modeling/actor_year_final_v2.parquet
+cinema-mobility-model analyze \
+  --actor-years results/modeling/actor_year_final_v2.parquet \
+  --train-end-year <locked-year> --validation-end-year <locked-year> \
+  --bootstrap-reps 1000 --outdir results/modeling/final_v2
 ```
 
-For the pooled all-pairs model, omit `--source` and `--destination`. Choose the chronological split after inspecting year/event coverage, and record it before fitting. Do not select pairs based on model results. If the thresholded pair list is too sparse, use the pre-specified pooled model and report support by pair.
+For the pooled all-pairs model, omit `--source` and `--destination`. Do not choose a split or pairs from model-performance results. The fixed primary plan pools all 20 ordered pairs; the five secondary pairs are preselected by their event-count threshold.
 
 ## Outputs
 
 - `data/processed/credits.parquet`: clean title-actor-language credits
-- `results/pair_screen.csv`: pre-model pair event and at-risk actor-year support screen
-- `data/processed/actor_year.parquet`: discrete-time actor-pair-year risk set and features
-- `results/model_comparison.csv`: chronological baseline/network comparison
-- `results/placebo_comparison.csv`: lead-exposure falsification comparison
-- `results/split.json`: exact training/test time ranges
+- `results/modeling/preflight/pair_screen.csv`: pre-model pair screen
+- `results/modeling/preflight/events_by_year.csv`: first-entry events and at-risk counts by year
+- `results/modeling/preflight/label_coverage_by_year.csv`: unknown and resolved label coverage by year
+- `results/modeling/final_v2/model_comparison.csv`: three-model validation/test comparison and paired intervals
+- `results/modeling/final_v2/placebo_comparison.csv`: network lead placebo
+- `results/modeling/final_v2/split.json`: exact training/validation/test time ranges
 
 ## Current limitations / next research steps
 
