@@ -6,14 +6,14 @@ A reproducible research pipeline for studying whether collaborators' prior cross
 
 - IMDb principal-cast ingestion for feature films and TV movies, restricted to top 10 billed actors.
 - Tiered original-language labels in `label_source`: **T1** TMDB `/find/{imdb_id}` (movie match preferred over TV), **T2** Wikidata by IMDb ID (P345) original language (P364), else **unknown**. Every lookup is cached in SQLite so reruns resume (`TMDB_API_KEY` in `.env`). `title.akas` is *not* a labelling tier (its original-title rows carry no language); it is used only to shortlist candidate titles (region `IN` or an hi/ta/te/ml/kn aka) and to flag likely dubbed/ambiguous titles. Cast is never used to infer language. Titles with unknown language remain graph ties but are excluded from language events. The final-v2 review list is not a completed manual review log; see [data provenance](docs/data_provenance.md).
-- Resolved original-language labels create language events; unknown and rule-ambiguous titles remain graph ties but do not create events.
-- Actor-language risk sets using the one-pager's thresholds: at least five principal credits in the source language across at least three *distinct calendar years* (a count of distinct years, not a max-minus-min span, and the years need not be consecutive), at least 70% of observed prior credits in that source language, and no prior destination credit.
-- Cumulative prior collaboration, X→D, and S→D exposure features; same-year transitions do not count as prior exposure.
-- Three pooled discrete-time hazard models, pair fixed effects, actor-clustered coefficient inference, actor-bootstrap test-metric intervals, pre-model temporal coverage tables, timing permutation, and a network lead placebo.
+- Clean resolved original-language labels create language events; unknown, ambiguous, and currently dubbed-flagged rows remain graph ties but do not create language events. Confirm the dubbed flag's intended semantics with the Data Lead before finalizing counts.
+- Dynamic actor-year risk sets: before each observation year, use the actor's unique most recent prior resolved language as the source, then require at least five prior source credits across at least three *distinct calendar years*, at least 70% of prior clean labelled credits in that source language, and no prior destination credit. Risk spells restart after a source change or eligibility interruption.
+- Career, X→D, and S→D exposures; directional exposures count only ties after the collaborator's transition and before the observation year. The two-year sensitivity restricts tie years to the two calendar years before the observation year.
+- Three pooled discrete-time hazard models, pair fixed effects, actor-clustered coefficient inference, actor-bootstrap test-metric intervals, pre-model temporal coverage tables, within-risk-spell timing permutation, reverse-direction comparison, and a network lead placebo.
 
 ## Pooled hazard models
 
-The integrated modeling implementation is in `src/cinema_mobility/modeling/`. Run `cinema-mobility-model preflight` first to create event-by-year and label-coverage tables. Choose and record the train/validation/test boundaries from those tables before fitting models. The `analyze` command requires both boundary years and has no default split. Full commands and sensitivity steps are in [`docs/modeling.md`](docs/modeling.md).
+The integrated modeling implementation is in `src/cinema_mobility/modeling/`. Run `cinema-mobility-model preflight` first to create event-by-year and label-coverage tables. The working split is train through 2016, validation 2017–2019, test 2020–2024; verify it against regenerated final-panel counts and record it before fitting. The `analyze` command requires both boundary years. Full commands and sensitivity steps are in [`docs/modeling.md`](docs/modeling.md).
 
 ## Data and language review
 
@@ -127,7 +127,7 @@ cinema-mobility-model analyze \
   --bootstrap-reps 1000 --outdir results/modeling/final_v2
 ```
 
-For the pooled all-pairs model, omit `--source` and `--destination`. Do not choose a split or pairs from model-performance results. The fixed primary plan pools all 20 ordered pairs; the five secondary pairs are preselected by their event-count threshold.
+For the pooled all-pairs model, omit `--source` and `--destination`. Do not choose a split or pairs from model-performance results. The primary plan pools all 20 ordered pairs. Under the current provisional dynamic-source screen, only `ml→ta` meets the secondary per-pair threshold of at least 100 events.
 
 ## Outputs
 
@@ -141,4 +141,4 @@ For the pooled all-pairs model, omit `--source` and `--destination`. Do not choo
 
 ## Current limitations / next research steps
 
-This is a first executable pipeline, not yet an empirical result. Validate the exact actor eligibility and career-history definitions against the course proposal, audit IMDb/TMDB ID matches, manually review language/dubbing labels, and document exclusions. The current collaboration feature construction is an interpretable first version; sensitivity analyses still needed include a stricter two-year lag, actor-level constrained timing permutation, and comparison of both S→D and D→S directions. The pair screen reports event counts, eligible actors and approximate at-risk actor-years; review those support levels and record thresholds before model fitting. Results must not be described causally.
+This is an executable modeling pipeline, not yet an empirical result. The final preflight and actor-year panel must be regenerated after the event filters are confirmed; the 949-event preflight is provisional. Confirm the meaning of `is_dubbed` with the Data Lead, review the fixed-source sensitivity, and preserve the pending AI-labeling decision as unresolved until the TA responds. Planned sensitivity analyses include strict Tier 1 labels, unknown-counted eligibility, the two-year tie window, alternate datasets, reverse direction, lead placebo, timing permutation, and graph connectivity. Results must not be described causally.

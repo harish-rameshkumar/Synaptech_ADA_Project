@@ -16,6 +16,7 @@ def main():
     screen.add_argument("--min-risk-years", type=int, default=100)
     screen.add_argument("--strict", action="store_true")
     screen.add_argument("--count-unknown-in-share", action="store_true")
+    screen.add_argument("--source-mode", choices=["dynamic", "fixed_legacy"], default="dynamic")
     screen.add_argument("--out", default="results/pair_screen.csv")
     preflight = sub.add_parser("preflight", help="Write model-free pair, event-year, and label-coverage tables")
     preflight.add_argument("--credits", required=True)
@@ -23,6 +24,7 @@ def main():
     preflight.add_argument("--min-risk-years", type=int, default=100)
     preflight.add_argument("--strict", action="store_true")
     preflight.add_argument("--count-unknown-in-share", action="store_true")
+    preflight.add_argument("--source-mode", choices=["dynamic", "fixed_legacy"], default="dynamic")
     preflight.add_argument("--outdir", default="results/modeling/preflight")
     build = sub.add_parser("build")
     build.add_argument("--credits", required=True)
@@ -31,6 +33,7 @@ def main():
     build.add_argument("--exposure-lookback-years", type=int)
     build.add_argument("--strict", action="store_true")
     build.add_argument("--count-unknown-in-share", action="store_true")
+    build.add_argument("--source-mode", choices=["dynamic", "fixed_legacy"], default="dynamic")
     build.add_argument("--out", required=True)
     analyze = sub.add_parser("analyze")
     analyze.add_argument("--actor-years", required=True)
@@ -47,6 +50,9 @@ def main():
     perm.add_argument("--reps", type=int, default=1000)
     perm.add_argument("--seed", type=int, default=2026)
     perm.add_argument("--strict", action="store_true")
+    perm.add_argument("--count-unknown-in-share", action="store_true")
+    perm.add_argument("--exposure-lookback-years", type=int)
+    perm.add_argument("--source-mode", choices=["dynamic", "fixed_legacy"], default="dynamic")
     perm.add_argument("--out", default="results/timing_permutation.csv")
     graph = sub.add_parser("graph-audit")
     graph.add_argument("--credits", required=True)
@@ -55,7 +61,7 @@ def main():
 
     if args.command == "pair-screen":
         result = select_pairs(load_credits(args.credits), args.min_events, args.min_risk_years,
-                              args.strict, args.count_unknown_in_share)
+                              args.strict, args.count_unknown_in_share, args.source_mode)
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         result.to_csv(args.out, index=False)
         print(result.to_string(index=False))
@@ -63,7 +69,7 @@ def main():
         credits = load_credits(args.credits)
         pair_counts, events_by_year, label_coverage = preflight_tables(
             credits, args.min_events, args.min_risk_years, args.strict,
-            args.count_unknown_in_share)
+            args.count_unknown_in_share, args.source_mode)
         outdir = Path(args.outdir)
         outdir.mkdir(parents=True, exist_ok=True)
         pair_counts.to_csv(outdir / "pair_screen.csv", index=False)
@@ -73,7 +79,8 @@ def main():
     elif args.command == "build":
         result = build_actor_year(load_credits(args.credits), args.source, args.destination,
                                   args.exposure_lookback_years, strict=args.strict,
-                                  count_unknown=args.count_unknown_in_share)
+                                  count_unknown=args.count_unknown_in_share,
+                                  source_mode=args.source_mode)
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         if Path(args.out).suffix.lower() == ".csv":
             result.to_csv(args.out, index=False)
@@ -100,7 +107,10 @@ def main():
     elif args.command == "permutation":
         result = timing_permutation_test(load_credits(args.credits), args.source, args.destination,
                                          args.train_end_year, args.validation_end_year,
-                                         args.reps, args.seed, strict=args.strict)
+                                         args.reps, args.seed, strict=args.strict,
+                                         count_unknown=args.count_unknown_in_share,
+                                         exposure_lookback_years=args.exposure_lookback_years,
+                                         source_mode=args.source_mode)
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         result.to_csv(args.out, index=False)
         print(result.to_string(index=False))

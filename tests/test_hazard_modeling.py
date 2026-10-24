@@ -11,6 +11,7 @@ from cinema_mobility.modeling.pipeline import (
     permute_timing_features,
     preflight_tables,
     run_reverse_direction_check,
+    yearly_label_coverage,
 )
 
 
@@ -46,6 +47,21 @@ class HazardModelingTests(unittest.TestCase):
         self.assertEqual(int(panel.event.sum()), 1)
         self.assertEqual(set(panel.year), {2004})  # absent 2003 is not fabricated as an observed row
         self.assertEqual(set(panel.qualifying_year), {2003})
+        self.assertEqual(set(panel.risk_spell_id), {0})
+
+    def test_fixed_source_mode_preserves_legacy_source_after_career_shift(self):
+        rows = [clean_credit("a", f"ta-{i}", year, "ta")
+                for i, year in enumerate([2000, 2000, 2001, 2002, 2002])]
+        rows.extend([clean_credit("a", "en-2003", 2003, "en"),
+                     clean_credit("a", "en-2004", 2004, "en"),
+                     clean_credit("a", "hi-entry", 2005, "hi")])
+        credits = load_credits(pd.DataFrame(rows))
+        dynamic = build_actor_year(credits, "ta", "hi")
+        fixed = build_actor_year(credits, "ta", "hi", source_mode="fixed_legacy")
+        self.assertEqual(int(dynamic.event.sum()), 0)
+        self.assertEqual(int(fixed.event.sum()), 1)
+        self.assertEqual(set(fixed.source), {"ta"})
+        self.assertEqual(fixed.risk_duration.tolist(), [1, 2, 3])
 
     def test_risk_duration_restarts_after_source_eligibility_is_interrupted(self):
         rows = []
@@ -68,6 +84,33 @@ class HazardModelingTests(unittest.TestCase):
         actor_rows = panel[panel.actor_id.eq("actor")].sort_values("year")
         self.assertEqual(actor_rows.qualifying_year.tolist(), [2003, 2005, 2005, 2005])
         self.assertEqual(actor_rows.risk_duration.tolist(), [1, 1, 2, 3])
+        self.assertEqual(actor_rows.risk_spell_id.tolist(), [0, 1, 1, 1])
+
+    def test_dubbed_credit_is_not_language_evidence_but_stays_a_tie(self):
+        rows = [clean_credit("a", f"a-ta-{i}", y, "ta")
+                for i, y in enumerate([2000, 2001, 2002, 2003])]
+        dubbed = clean_credit("a", "shared-dubbed", 2004, "ta")
+        dubbed["is_dubbed"] = True
+        rows.extend([dubbed, clean_credit("b", "shared-dubbed", 2004, "ta"),
+                     clean_credit("a", "a-hi", 2006, "hi")])
+        credits = load_credits(pd.DataFrame(rows))
+        self.assertIn("shared-dubbed", credits.title_id.unique())
+        with self.assertRaisesRegex(ValueError, "No eligible"):
+            build_actor_year(credits, "ta", "hi")
+        graph = graph_connectivity_audit(credits).set_index("graph")
+        self.assertEqual(int(graph.loc["all_titles_including_unknown", "components"]), 1)
+        self.assertEqual(int(graph.loc["resolved_clean_titles_only", "components"]), 2)
+
+    def test_label_coverage_counts_ambiguous_flag_as_unusable(self):
+        rows = [clean_credit("a", "resolved", 2000, "ta"),
+                clean_credit("b", "flagged", 2000, "hi", ambiguous=True),
+                clean_credit("c", "rule-flagged-unknown", 2000, "unknown", "RULE_AMBIGUOUS", True),
+                clean_credit("d", "rule-flagged-labeled", 2000, "te", "RULE_AMBIGUOUS", False)]
+        coverage = yearly_label_coverage(load_credits(pd.DataFrame(rows))).iloc[0]
+        self.assertEqual(int(coverage.candidate_titles), 4)
+        self.assertEqual(int(coverage.resolved_titles), 1)
+        self.assertEqual(int(coverage.rule_ambiguous_titles), 3)
+        self.assertEqual(int(coverage.unknown_titles), 0)
 
     def test_ambiguous_credit_is_not_language_evidence_but_remains_a_tie(self):
         rows = [clean_credit("a", f"a-ta-{i}", y, "ta")
@@ -89,16 +132,20 @@ class HazardModelingTests(unittest.TestCase):
 
     def test_prior_destination_exposure_and_one_year_lead_are_distinct(self):
         rows = []
-        # The shared title creates a tie before collaborator b's first hi entry.
+            # The shared title creates a tie before collaborator b's first hi entry.
         for actor in ["a", "b"]:
             for i, year in enumerate([1999, 2000, 2001, 2002]):
                 rows.append(clean_credit(actor, f"{actor}-ta-{i}", year, "ta"))
         rows.extend([
             clean_credit("a", "shared-ta", 2003, "ta"),
             clean_credit("b", "shared-ta", 2003, "ta"),
+            # A post-transition co-appearance is required for genuine exposure.
+            clean_credit("a", "shared-after-hi", 2006, "ta"),
+            clean_credit("b", "shared-after-hi", 2006, "ta"),
             # The study has observed titles in 2004, though focal actor a has none.
             clean_credit("c", "unrelated-2004", 2004, "unknown", "UNKNOWN"),
             clean_credit("c", "unrelated-2006", 2006, "unknown", "UNKNOWN"),
+            clean_credit("c", "unrelated-2007", 2007, "unknown", "UNKNOWN"),
             clean_credit("b", "b-hi", 2005, "hi"),
             clean_credit("a", "a-hi", 2008, "hi"),
         ])
@@ -108,7 +155,29 @@ class HazardModelingTests(unittest.TestCase):
         # for the preceding year. It becomes S→D exposure from the next year.
         self.assertEqual(int(focal.loc[2004, "sd_collaborators"]), 0)
         self.assertGreaterEqual(int(focal.loc[2004, "lead_sd_collaborators"]), 1)
-        self.assertGreaterEqual(int(focal.loc[2006, "sd_collaborators"]), 1)
+        self.assertEqual(int(focal.loc[2006, "sd_collaborators"]), 0)
+        self.assertGreaterEqual(int(focal.loc[2007, "sd_collaborators"]), 1)
+
+    def test_two_year_exposure_window_limits_tie_years_not_move_year(self):
+        rows = []
+        for actor in ["a", "b"]:
+            for i, year in enumerate([1998, 1999, 2000, 2001, 2002]):
+                rows.append(clean_credit(actor, f"{actor}-ta-{i}", year, "ta"))
+        rows.extend([
+            clean_credit("b", "b-hi-entry", 2001, "hi"),
+            clean_credit("a", "shared-old", 2002, "ta"),
+            clean_credit("b", "shared-old", 2002, "ta"),
+            clean_credit("a", "shared-recent", 2004, "ta"),
+            clean_credit("b", "shared-recent", 2004, "ta"),
+            clean_credit("a", "shared-recent-2", 2005, "ta"),
+            clean_credit("b", "shared-recent-2", 2005, "ta"),
+            clean_credit("c", "observed-2006", 2006, "unknown", "UNKNOWN"),
+            clean_credit("a", "a-hi-entry", 2007, "hi"),
+        ])
+        credits = load_credits(pd.DataFrame(rows))
+        panel = build_actor_year(credits, "ta", "hi", exposure_lookback_years=2)
+        focal = panel[(panel.actor_id == "a") & (panel.year == 2006)].iloc[0]
+        self.assertEqual(int(focal.sd_collaborations), 2)
 
     def test_reverse_direction_feature_uses_prior_D_to_S_collaborator_move(self):
         rows = []
@@ -117,14 +186,14 @@ class HazardModelingTests(unittest.TestCase):
         for i, year in enumerate([1999, 2000, 2001, 2002, 2003]):
             rows.append(clean_credit("b", f"b-hi-{i}", year, "hi"))
         rows.extend([
-            clean_credit("a", "shared-unknown", 2004, "unknown", "UNKNOWN"),
-            clean_credit("b", "shared-unknown", 2004, "unknown", "UNKNOWN"),
             clean_credit("b", "b-ta-entry", 2006, "ta"),
+            clean_credit("a", "shared-unknown", 2007, "unknown", "UNKNOWN"),
+            clean_credit("b", "shared-unknown", 2007, "unknown", "UNKNOWN"),
             clean_credit("c", "unrelated-2007", 2007, "unknown", "UNKNOWN"),
             clean_credit("a", "a-hi-entry", 2008, "hi"),
         ])
         panel = build_actor_year(load_credits(pd.DataFrame(rows)), "ta", "hi")
-        focal = panel[(panel.actor_id == "a") & (panel.year == 2007)].iloc[0]
+        focal = panel[(panel.actor_id == "a") & (panel.year == 2008)].iloc[0]
         self.assertEqual(int(focal.reverse_sd_collaborators), 1)
         self.assertGreaterEqual(int(focal.reverse_sd_collaborations), 1)
 
@@ -135,6 +204,7 @@ class HazardModelingTests(unittest.TestCase):
             "destination": ["hi"] * 4,
             "year": [2000, 2001, 2002, 2003],
             "event": [0, 0, 0, 1],
+            "risk_spell_id": [0, 0, 0, 0],
             "sd_collaborations": [0, 1, 3, 3],
             "sd_collaborators": [0, 1, 2, 2],
             "career_exposure": [0, 2, 4, 6],
@@ -143,6 +213,20 @@ class HazardModelingTests(unittest.TestCase):
         self.assertEqual(permuted.sd_collaborations.sum(), panel.sd_collaborations.sum())
         self.assertEqual(permuted.sd_collaborators.sum(), panel.sd_collaborators.sum())
         self.assertEqual(permuted.career_exposure.tolist(), panel.career_exposure.tolist())
+
+    def test_timing_permutation_never_moves_exposure_between_risk_spells(self):
+        panel = pd.DataFrame({
+            "actor_id": ["a"] * 4, "source": ["ta"] * 4,
+            "destination": ["hi"] * 4, "risk_spell_id": [0, 0, 1, 1],
+            "year": [2000, 2001, 2005, 2006],
+            "sd_collaborations": [1, 2, 10, 20],
+            "sd_collaborators": [1, 1, 3, 4],
+        })
+        permuted = permute_timing_features(panel, seed=7)
+        for spell_id in [0, 1]:
+            before = panel.loc[panel.risk_spell_id.eq(spell_id), "sd_collaborations"].sort_values().tolist()
+            after = permuted.loc[permuted.risk_spell_id.eq(spell_id), "sd_collaborations"].sort_values().tolist()
+            self.assertEqual(before, after)
 
     def test_preflight_counts_risk_rows_without_network_feature_builder(self):
         rows = [clean_credit("a", f"ta-{i}", y, "ta")
