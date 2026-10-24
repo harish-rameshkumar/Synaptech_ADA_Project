@@ -38,7 +38,7 @@ tmdb_enrich(imdb_title_ids, "data/raw/tmdb_matches.csv")
 ```bash
 cinema-mobility resolve-labels [--end-year Y]      # T1 TMDB, T2 Wikidata; cached in data/raw/label_cache.sqlite, resumable
 cinema-mobility build-credits [--end-year 2024] [--focal-languages hi,ta,te,ml,kn]       # data/processed/credits.parquet (left join)
-cinema-mobility quality-report [--end-year 2024]      # results/data_quality.csv + data/raw/language_labels_review.csv
+cinema-mobility quality-report [--end-year 2024] [--final data/processed/credits_final_v2.parquet]      # --final defaults to credits_final_v2.parquet; results/data_quality.csv + data/raw/language_labels_review.csv
 cinema-mobility make-sample                        # data/processed/credits_sample.parquet (~5,000 credits)
 ```
 
