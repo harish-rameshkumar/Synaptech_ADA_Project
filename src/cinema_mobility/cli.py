@@ -237,7 +237,7 @@ def main():
     qr.add_argument("--principals", default="data/raw/title.principals.tsv.gz")
     qr.add_argument("--out", default="results/data_quality.csv")
     qr.add_argument("--baseline", default="data/processed/credits.parquet", help="no-rules baseline credits")
-    qr.add_argument("--final", default="data/processed/credits_final.parquet", help="primary credits (rules applied)")
+    qr.add_argument("--final", default="data/processed/credits_final_v2.parquet", help="primary credits (rules applied)")
     qr.add_argument("--control", default="data/review/packet/review_control_prefilled.csv")
     qr.add_argument("--recall-cache", default="data/raw/recall_cache.sqlite")
     qr.add_argument("--rules-dir", default="results", help="where rules-report --stage full wrote its sensitivity files")
