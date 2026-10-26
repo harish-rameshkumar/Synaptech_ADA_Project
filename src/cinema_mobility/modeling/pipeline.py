@@ -65,9 +65,11 @@ def load_credits(path: str | Path, strict: bool = False) -> pd.DataFrame:
 
 
 def _event_credits(credits: pd.DataFrame, strict: bool = False) -> pd.DataFrame:
-    # A dubbed release is not automatically discarded: the project label is
-    # the title's original language. Exclude only unresolved/ambiguous labels.
-    known = credits.language.ne("unknown") & ~credits.is_ambiguous
+    # Dubbed and ambiguous titles remain in the graph, but the registered
+    # event definition excludes them from language evidence and eligibility.
+    rule_flagged = credits.label_source.eq("RULE_AMBIGUOUS")
+    known = (credits.language.ne("unknown") & ~credits.is_ambiguous &
+             ~credits.is_dubbed & ~rule_flagged)
     if strict:
         known &= credits.label_source.eq("T1")
     return credits[known].copy()
@@ -88,10 +90,17 @@ def language_audit(credits: pd.DataFrame) -> pd.DataFrame:
 
 def yearly_label_coverage(credits: pd.DataFrame) -> pd.DataFrame:
     """Pre-model yearly title-label coverage for choosing temporal boundaries."""
-    titles = credits[["title_id", "year", "language", "label_source"]].drop_duplicates("title_id").copy()
+    columns = ["title_id", "year", "language", "label_source"]
+    if "is_ambiguous" in credits:
+        columns.append("is_ambiguous")
+    titles = credits[columns].drop_duplicates("title_id").copy()
     titles["language"] = titles.language.fillna("unknown").astype(str).str.lower()
     titles["label_source"] = titles.label_source.fillna("unknown").astype(str).str.upper()
-    titles["is_rule_ambiguous"] = titles.label_source.eq("RULE_AMBIGUOUS")
+    if "is_ambiguous" in titles:
+        titles["is_ambiguous"] = _bool(titles.is_ambiguous)
+    else:
+        titles["is_ambiguous"] = False
+    titles["is_rule_ambiguous"] = titles.label_source.eq("RULE_AMBIGUOUS") | titles.is_ambiguous
     titles["is_unknown"] = titles.language.eq("unknown") & ~titles.is_rule_ambiguous
     titles["is_resolved"] = ~titles.language.eq("unknown") & ~titles.is_rule_ambiguous
     out = titles.groupby("year", observed=True).agg(
@@ -148,6 +157,19 @@ def _latest_prior_language(actor_events: pd.DataFrame, year: int) -> str | None:
     return str(languages[0]) if len(languages) == 1 else None
 
 
+def _post_transition_ties(tie_years: list[int], transition_year: int,
+                          observation_year: int,
+                          lookback_years: int | None = None) -> int:
+    """Count ties after a collaborator's move and before t, optionally in recent years."""
+    if transition_year >= observation_year:
+        return 0
+    first_included_year = transition_year + 1
+    if lookback_years is not None:
+        first_included_year = max(first_included_year, observation_year - lookback_years)
+    return max(0, bisect_left(tie_years, observation_year) -
+               bisect_left(tie_years, first_included_year))
+
+
 def _unknown_counts_by_actor(credits: pd.DataFrame, count_unknown: bool) -> dict[str, dict[int, int]]:
     """Index unknown, non-rule-flagged credits for the denominator sensitivity."""
     if not count_unknown:
@@ -155,21 +177,87 @@ def _unknown_counts_by_actor(credits: pd.DataFrame, count_unknown: bool) -> dict
     unknown = credits[credits.language.eq("unknown")].copy()
     if "is_ambiguous" in unknown:
         unknown = unknown[~unknown.is_ambiguous]
+    if "is_dubbed" in unknown:
+        unknown = unknown[~unknown.is_dubbed]
     if "label_source" in unknown:
         unknown = unknown[~unknown.label_source.eq("RULE_AMBIGUOUS")]
     return {str(actor): {int(y): int(n) for y, n in group.groupby("year").size().items()}
             for actor, group in unknown.groupby("actor_id", sort=False)}
 
 
+def _fixed_source_transitions(event_credits: pd.DataFrame, observation_end: int,
+                              all_credits: pd.DataFrame,
+                              count_unknown: bool) -> pd.DataFrame:
+    """Legacy sensitivity: qualify once per source, then keep that source fixed."""
+    columns = ["actor_id", "source", "destination", "year", "event", "qualifying_year",
+               "risk_spell_id", "risk_spell_start_year", "first_observed_year", "observation_end"]
+    observed_years = {int(y) for y in all_credits.year.unique() if int(y) <= observation_end}
+    unknown_by_actor_year = _unknown_counts_by_actor(all_credits, count_unknown)
+    all_first_observed = event_credits.groupby("actor_id").year.min().to_dict()
+    output = []
+    for actor, history in event_credits.groupby("actor_id", sort=False):
+        first_observed = int(all_first_observed[actor])
+        source_qualifying_years: dict[str, int] = {}
+        unknown_years = unknown_by_actor_year.get(str(actor), {})
+        prior_counts: dict[str, int] = {}
+        prior_years: dict[str, set[int]] = {}
+        prior_total = 0
+        prior_unknown = 0
+        by_year = {int(y): g.language.value_counts().to_dict()
+                   for y, g in history.groupby("year", sort=False)}
+        for year in range(first_observed, observation_end + 1):
+            current = by_year.get(year, {})
+            for language, count in current.items():
+                prior_counts[language] = prior_counts.get(language, 0) + int(count)
+                prior_years.setdefault(language, set()).add(year)
+                prior_total += int(count)
+            prior_unknown += int(unknown_years.get(year, 0))
+            denominator = prior_total + (prior_unknown if count_unknown else 0)
+            for source in FOCAL_LANGUAGES:
+                if (source not in source_qualifying_years and
+                        prior_counts.get(source, 0) >= 5 and
+                        len(prior_years.get(source, set())) >= 3 and denominator > 0 and
+                        prior_counts[source] / denominator >= .70):
+                    source_qualifying_years[source] = year
+
+        for source, qualifying_year in source_qualifying_years.items():
+            prior_destinations = set(history.loc[history.year.le(qualifying_year), "language"])
+            for destination in FOCAL_LANGUAGES:
+                if destination == source or destination in prior_destinations:
+                    continue
+                later = history[(history.language.eq(destination)) & history.year.gt(qualifying_year)]
+                event_year = int(later.year.min()) if not later.empty else None
+                end_year = event_year if event_year is not None else observation_end
+                for year in range(qualifying_year + 1, end_year + 1):
+                    if year not in observed_years:
+                        continue
+                    output.append({"actor_id": str(actor), "source": source,
+                                   "destination": destination, "year": year,
+                                   "event": int(event_year == year),
+                                   "qualifying_year": int(qualifying_year),
+                                   "risk_spell_id": 0,
+                                   "risk_spell_start_year": int(qualifying_year + 1),
+                                   "first_observed_year": first_observed,
+                                   "observation_end": observation_end})
+    return pd.DataFrame(output, columns=columns)
+
+
 def _eligible_transitions(event_credits: pd.DataFrame, observation_end: int | None = None,
                           all_credits: pd.DataFrame | None = None,
-                          count_unknown: bool = False) -> pd.DataFrame:
-    """Build actor-destination risk rows with source re-evaluated before each year."""
+                          count_unknown: bool = False,
+                          source_mode: str = "dynamic") -> pd.DataFrame:
+    """Build dynamic or legacy fixed-source actor-destination risk rows."""
     columns = ["actor_id", "source", "destination", "year", "event", "qualifying_year",
-               "first_observed_year", "observation_end"]
+               "risk_spell_id", "risk_spell_start_year", "first_observed_year", "observation_end"]
     if event_credits.empty:
         return pd.DataFrame(columns=columns)
     observation_end = int(observation_end if observation_end is not None else event_credits.year.max())
+    if source_mode == "fixed_legacy":
+        return _fixed_source_transitions(event_credits, observation_end,
+                                         all_credits if all_credits is not None else event_credits,
+                                         count_unknown)
+    if source_mode != "dynamic":
+        raise ValueError("source_mode must be 'dynamic' or 'fixed_legacy'.")
     year_source = all_credits if all_credits is not None else event_credits
     observed_years = {int(y) for y in year_source.year.unique() if int(y) <= observation_end}
     first_year = min(observed_years) if observed_years else observation_end
@@ -196,6 +284,8 @@ def _eligible_transitions(event_credits: pd.DataFrame, observation_end: int | No
         for destination in focal:
             active_source = None
             qualifying_year = None
+            risk_spell_start_year = None
+            risk_spell_id = -1
             prior_counts: dict[str, int] = {}
             prior_years: dict[str, set[int]] = {}
             prior_labelled_total = 0
@@ -232,11 +322,15 @@ def _eligible_transitions(event_credits: pd.DataFrame, observation_end: int | No
                     if source != active_source:
                         active_source = source
                         qualifying_year = year
+                        risk_spell_start_year = year
+                        risk_spell_id += 1
                     if year in observed_years:
                         current_destination = int(year_language_counts.get(year, {}).get(destination, 0) > 0)
                         output.append({"actor_id": str(actor), "source": source,
                                        "destination": destination, "year": year, "event": current_destination,
                                        "qualifying_year": qualifying_year,
+                                       "risk_spell_id": risk_spell_id,
+                                       "risk_spell_start_year": risk_spell_start_year,
                                        "first_observed_year": first_observed,
                                        "observation_end": observation_end})
                         if current_destination:
@@ -244,6 +338,7 @@ def _eligible_transitions(event_credits: pd.DataFrame, observation_end: int | No
                 else:
                     active_source = None
                     qualifying_year = None
+                    risk_spell_start_year = None
                 current = year_language_counts.get(year, {})
                 for language, count in current.items():
                     prior_counts[language] = prior_counts.get(language, 0) + count
@@ -256,10 +351,12 @@ def _eligible_transitions(event_credits: pd.DataFrame, observation_end: int | No
 
 
 def select_pairs(credits: pd.DataFrame, min_events: int = 10, min_at_risk: int = 100,
-                 strict: bool = False, count_unknown: bool = False) -> pd.DataFrame:
+                 strict: bool = False, count_unknown: bool = False,
+                 source_mode: str = "dynamic") -> pd.DataFrame:
     """Pre-model pair screen without building network-exposure features."""
     events = _event_credits(credits, strict)
-    transitions = _eligible_transitions(events, int(credits.year.max()), credits, count_unknown)
+    transitions = _eligible_transitions(events, int(credits.year.max()), credits,
+                                        count_unknown, source_mode)
     return _pair_counts(transitions, min_events, min_at_risk)
 
 
@@ -275,24 +372,27 @@ def _pair_counts(transitions: pd.DataFrame, min_events: int, min_at_risk: int) -
 
 
 def preflight_tables(credits: pd.DataFrame, min_events: int = 10, min_at_risk: int = 100,
-                     strict: bool = False, count_unknown: bool = False
+                     strict: bool = False, count_unknown: bool = False,
+                     source_mode: str = "dynamic"
                      ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Build screening tables only; skip expensive network-exposure construction."""
     events = _event_credits(credits, strict)
-    transitions = _eligible_transitions(events, int(credits.year.max()), credits, count_unknown)
+    transitions = _eligible_transitions(events, int(credits.year.max()), credits,
+                                        count_unknown, source_mode)
     return (_pair_counts(transitions, min_events, min_at_risk),
             yearly_event_counts(transitions), yearly_label_coverage(credits))
 
 
 def permute_timing_features(panel: pd.DataFrame, seed: int) -> pd.DataFrame:
-    """Shuffle S→D exposure vectors within actor-pair spells, keeping graph fixed."""
+    """Shuffle S→D exposure vectors within risk spells, keeping graph fixed."""
     permuted = panel.copy()
     columns = ["sd_collaborations", "sd_collaborators"]
-    missing = set(columns) - set(permuted.columns)
+    missing = (set(columns) | {"risk_spell_id"}) - set(permuted.columns)
     if missing:
         raise ValueError(f"Panel lacks S→D timing features: {sorted(missing)}")
     rng = np.random.default_rng(seed)
-    for _, idx in permuted.groupby(["actor_id", "source", "destination"], sort=False).groups.items():
+    spell_columns = ["actor_id", "source", "destination", "risk_spell_id"]
+    for _, idx in permuted.groupby(spell_columns, sort=False, dropna=False).groups.items():
         order = rng.permutation(len(idx))
         values = permuted.loc[idx, columns].to_numpy(copy=True)
         permuted.loc[idx, columns] = values[order]
@@ -302,7 +402,8 @@ def permute_timing_features(panel: pd.DataFrame, seed: int) -> pd.DataFrame:
 def build_actor_year(credits: pd.DataFrame, source: str | None = None,
                      destination: str | None = None, exposure_lookback_years: int | None = None,
                      strict: bool = False, timing_permutation_seed: int | None = None,
-                     count_unknown: bool = False) -> pd.DataFrame:
+                     count_unknown: bool = False,
+                     source_mode: str = "dynamic") -> pd.DataFrame:
     """Build annual risk rows and strictly prior cumulative network exposures.
 
     Main-model exposure is cumulative over all strictly prior qualifying ties.
@@ -314,7 +415,8 @@ def build_actor_year(credits: pd.DataFrame, source: str | None = None,
     events = _event_credits(credits, strict)
     if events.empty:
         raise ValueError("No resolved language credits remain under the selected label mode.")
-    transitions = _eligible_transitions(events, int(credits.year.max()), credits, count_unknown)
+    transitions = _eligible_transitions(events, int(credits.year.max()), credits,
+                                        count_unknown, source_mode)
     if source:
         transitions = transitions[transitions.source.eq(source.lower())]
     if destination:
@@ -379,39 +481,45 @@ def build_actor_year(credits: pd.DataFrame, source: str | None = None,
         for collaborator, tie_years in neighbors.items():
             n_prior_ties = bisect_left(tie_years, year)
             career_collabs += n_prior_ties
-            # Reverse-direction control: collaborator's prior D→S transition
-            # for a focal S→D pathway. The focal collaboration must still
-            # precede the observation year.
+            # Exposure requires a post-transition co-appearance before t.
+            # Apply the same rule to the reverse-direction comparison.
             reverse_move = origins.get((collaborator, tr.source))
             if reverse_move is not None:
                 reverse_origin, reverse_year = reverse_move
-                if reverse_origin == tr.destination and reverse_year < year:
-                    reverse_sd_collabs += n_prior_ties
-                    reverse_sd_actors += int(n_prior_ties > 0)
+                if reverse_origin == tr.destination:
+                    reverse_ties = _post_transition_ties(
+                        tie_years, reverse_year, year, exposure_lookback_years)
+                    reverse_sd_collabs += reverse_ties
+                    reverse_sd_actors += int(reverse_ties > 0)
             move = origins.get((collaborator, tr.destination))
             if move is None:
                 continue
             origin, move_year = move
-            lag = year - move_year
-            if move_year < year and (exposure_lookback_years is None or lag <= exposure_lookback_years):
+            exposure_ties = _post_transition_ties(
+                tie_years, move_year, year, exposure_lookback_years)
+            if exposure_ties:
                 if origin == tr.source:
-                    sd_collabs += n_prior_ties
-                    sd_actors += int(n_prior_ties > 0)
+                    sd_collabs += exposure_ties
+                    sd_actors += 1
                 else:
-                    xd_collabs += n_prior_ties
-                    xd_actors += int(n_prior_ties > 0)
+                    xd_collabs += exposure_ties
+                    xd_actors += 1
             # Genuine network lead: a collaborator's first D entry occurs at
             # t+1. This does not use at-risk-panel shift(), avoiding terminal
             # event leakage caused by panel rows ending at the outcome year.
-            if origin == tr.source and move_year == year + 1 and n_prior_ties:
-                lead_sd_collabs += n_prior_ties
+            lead_ties = n_prior_ties
+            if exposure_lookback_years is not None:
+                lead_ties -= bisect_left(tie_years, year - exposure_lookback_years)
+            if origin == tr.source and move_year == year + 1 and lead_ties:
+                lead_sd_collabs += lead_ties
                 lead_sd_actors += 1
         prior_counts, prior_languages, _ = history_cache.get((actor, year), ({}, set(), 0))
         annual_source = int(annual_counts.get((actor, year - 1, tr.source), 0))
         rows.append({"actor_id": actor, "source": tr.source, "destination": tr.destination,
                      "pair": f"{tr.source}->{tr.destination}", "year": year,
                      "event": int(tr.event), "qualifying_year": int(tr.qualifying_year),
-                     "risk_duration": int(year - int(tr.qualifying_year) + 1),
+                     "risk_spell_id": int(tr.risk_spell_id),
+                     "risk_duration": int(year - int(tr.risk_spell_start_year) + 1),
                      "career_age": year - int(tr.first_observed_year),
                      "career_exposure": career_collabs,
                      "source_credits": int(prior_counts.get(tr.source, 0)),
@@ -702,17 +810,22 @@ def timing_permutation_test(credits: pd.DataFrame, source: str | None,
                             destination: str | None,
                             train_end_year: int, validation_end_year: int,
                             reps: int = 1000, seed: int = 2026,
-                            strict: bool = False) -> pd.DataFrame:
+                            strict: bool = False, count_unknown: bool = False,
+                            exposure_lookback_years: int | None = None,
+                            source_mode: str = "dynamic") -> pd.DataFrame:
     """Test incremental S→D predictive information after permuting exposure timing.
 
     Each replicate permutes the vector of S→D exposure features within each
-    actor-pathway spell. This preserves the actor's exposure totals and fixed
-    network while breaking their alignment with event years. The statistic is
-    the change in test AUPRC from Model 2 to Model 3.
+    actor-source-destination risk spell. This preserves spell-specific exposure
+    totals and the fixed network while breaking alignment with event years. The
+    statistic is the change in test AUPRC from Model 2 to Model 3.
     """
     if (source is None) != (destination is None):
         raise ValueError("Provide both source and destination for a pair-specific permutation, or neither for pooled.")
-    panel = build_actor_year(credits, source, destination, strict=strict)
+    panel = build_actor_year(credits, source, destination,
+                             exposure_lookback_years=exposure_lookback_years,
+                             strict=strict, count_unknown=count_unknown,
+                             source_mode=source_mode)
     observed, _ = evaluate(panel, train_end_year, validation_end_year, bootstrap_reps=0)
     base = float(observed.loc[observed.model.eq("career_plus_XD"), "test_AUPRC"].iloc[0])
     full = float(observed.loc[observed.model.eq("career_plus_XD_SD"), "test_AUPRC"].iloc[0])
