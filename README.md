@@ -6,14 +6,14 @@ A reproducible research pipeline for studying whether collaborators' prior cross
 
 - IMDb principal-cast ingestion for feature films and TV movies, restricted to top 10 billed actors.
 - Tiered original-language labels in `label_source`: **T1** TMDB `/find/{imdb_id}` (movie match preferred over TV), **T2** Wikidata by IMDb ID (P345) original language (P364), else **unknown**. Every lookup is cached in SQLite so reruns resume (`TMDB_API_KEY` in `.env`). `title.akas` is *not* a labelling tier (its original-title rows carry no language); it is used only to shortlist candidate titles (region `IN` or an hi/ta/te/ml/kn aka) and to flag likely dubbed/ambiguous titles. Cast is never used to infer language. Titles with unknown language remain graph ties but are excluded from language events. The final-v2 review list is not a completed manual review log; see [data provenance](docs/data_provenance.md).
-- Clean resolved original-language labels create language events; unknown, ambiguous, and currently dubbed-flagged rows remain graph ties but do not create language events. Confirm the dubbed flag's intended semantics with the Data Lead before finalizing counts.
+- Clean resolved original-language labels create language events; unknown and rule-ambiguous rows remain graph ties but do not create events or eligibility. Final-v2 has no `is_dubbed` field and no comprehensive dubbed-title screening was done, so dubbing remains a documented limitation. Optional flag handling in code does not establish that screening occurred.
 - Dynamic actor-year risk sets: before each observation year, use the actor's unique most recent prior resolved language as the source, then require at least five prior source credits across at least three *distinct calendar years*, at least 70% of prior clean labelled credits in that source language, and no prior destination credit. Risk spells restart after a source change or eligibility interruption.
 - Career, X→D, and S→D exposures; directional exposures count only ties after the collaborator's transition and before the observation year. The two-year sensitivity restricts tie years to the two calendar years before the observation year.
 - Three pooled discrete-time hazard models, pair fixed effects, actor-clustered coefficient inference, actor-bootstrap test-metric intervals, pre-model temporal coverage tables, within-risk-spell timing permutation, reverse-direction comparison, and a network lead placebo.
 
 ## Pooled hazard models
 
-The integrated modeling implementation is in `src/cinema_mobility/modeling/`. Run `cinema-mobility-model preflight` first to create event-by-year and label-coverage tables. The working split is train through 2016, validation 2017–2019, test 2020–2024; verify it against regenerated final-panel counts and record it before fitting. The `analyze` command requires both boundary years. Full commands and sensitivity steps are in [`docs/modeling.md`](docs/modeling.md).
+The integrated modeling implementation is in `src/cinema_mobility/modeling/`. Run `cinema-mobility-model preflight` first to create event-by-year and label-coverage tables. The verified primary split is train through 2016, validation 2017–2019, test 2020–2024. The `analyze` command requires both boundary years. Full commands and sensitivity steps are in [`docs/modeling.md`](docs/modeling.md).
 
 ## Data and language review
 
@@ -120,16 +120,18 @@ cinema-mobility-model preflight --credits data/processed/credits_final_v2.parque
   --outdir results/modeling/preflight
 # Lock the train and validation end years from these model-free tables first.
 cinema-mobility-model build --credits data/processed/credits_final_v2.parquet \
-  --out results/modeling/actor_year_final_v2.parquet
+  --out results/modeling/actor_year_final_v2_dynamic.parquet
 cinema-mobility-model analyze \
-  --actor-years results/modeling/actor_year_final_v2.parquet \
-  --train-end-year <locked-year> --validation-end-year <locked-year> \
+  --actor-years results/modeling/actor_year_final_v2_dynamic.parquet \
+  --train-end-year 2016 --validation-end-year 2019 \
   --bootstrap-reps 1000 --outdir results/modeling/final_v2
 ```
 
-For the pooled all-pairs model, omit `--source` and `--destination`. Do not choose a split or pairs from model-performance results. The primary plan pools all 20 ordered pairs. Under the current provisional dynamic-source screen, only `ml→ta` meets the secondary per-pair threshold of at least 100 events.
+For the pooled all-pairs model, omit `--source` and `--destination`. Do not choose a split or pairs from model-performance results. The primary plan pools all 20 ordered pairs. Under the verified dynamic-source screen, only `ml→ta` meets the secondary per-pair threshold of at least 100 events.
 
 ## Outputs
+
+For a short guide to the saved modeling files, start with [the modeling results guide](docs/modeling_results_navigation.md).
 
 - `data/processed/credits.parquet`: clean title-actor-language credits
 - `results/modeling/preflight/pair_screen.csv`: pre-model pair screen
@@ -141,4 +143,8 @@ For the pooled all-pairs model, omit `--source` and `--destination`. Do not choo
 
 ## Current limitations / next research steps
 
-This is an executable modeling pipeline, not yet an empirical result. The final preflight and actor-year panel must be regenerated after the event filters are confirmed; the 949-event preflight is provisional. Confirm the meaning of `is_dubbed` with the Data Lead, review the fixed-source sensitivity, and preserve the pending AI-labeling decision as unresolved until the TA responds. Planned sensitivity analyses include strict Tier 1 labels, unknown-counted eligibility, the two-year tie window, alternate datasets, reverse direction, lead placebo, timing permutation, and graph connectivity. Results must not be described causally.
+The primary final-v2 analysis is complete and was verified on 2026-10-26: 205,664 risk rows and 949 events across all 20 ordered pairs. Train has 131,661 rows / 611 events; validation 24,712 / 122; test 49,291 / 216. Test AUPRC is .022608 (career), .031414 (+ X→D), and .035181 (+ S→D); the incremental S→D AUPRC interval includes zero. The ml→ta secondary analysis (140 total events), strict Tier 1, unknown-counted denominator, two-year exposure, fixed-source, alternate datasets, reverse-direction and one-year lead comparisons are complete. See [the verified inventory and provenance](docs/modeling.md#verified-output-inventory-2026-10-26) before selecting files. The 205,457-row / 200-test-event outputs are the credits_final sensitivity, not the primary analysis.
+
+The original timing-permutation attempt was stopped for runtime; the separately authorized follow-up completed all **1,000 repetitions**, seed 2026. The one-sided Monte Carlo p-value is **0.000999** for an observed test AUPRC gain of 0.003767. Results and all replicate scores are in `results/modeling/timing_permutation_20261026/`; implementation-equivalence checks and provenance are in `validation.json`. The combined eight-analysis summary is `results/modeling/modeling_summary.csv`. The full repository suite passes **58/58 tests**. See the modeling guide for the execution method and interpretation. No AI-assisted labeling was performed in this modeling task; existing upstream labeling history and any pending TA decision remain separate provenance issues. Final-v2 lacks a dubbed-title field and comprehensive screening, so dubbing is a limitation rather than an applied exclusion. Findings are predictive associations, not causal effects.
+
+The separate final-v2 graph audit completed on 2026-10-26: largest-component share 87.0033% with all title ties and 66.2117% with clean-resolved ties, retaining the same actor universe. Output: `results/modeling/graph_audit_20261026/graph_connectivity_code_audit.csv`; interpretation details are in the modeling guide.
