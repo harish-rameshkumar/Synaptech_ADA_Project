@@ -49,6 +49,35 @@ Our unit of language is a title's *original* language, assigned in tiers. **T1**
 | Telugu (`te`) | 3,045 | 84.3% | 15.7% | — |
 | Kannada (`kn`) | 2,016 | 75.1% | 24.9% | — |
 
+**Table 2b.** Share of titles resolved by T1 / T2 (% of the group's titles), by original language and release decade, in `final_v2`.
+{: .caption }
+
+| Decade | Hindi | Tamil | Telugu | Malayalam | Kannada | Other |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1980s | 91.6 / 7.8 | 76.1 / 22.0 | 60.0 / 39.2 | 61.8 / 37.8 | 71.9 / 26.6 | 98.0 / 2.0 |
+| 1990s | 90.6 / 8.8 | 66.6 / 32.8 | 74.9 / 23.9 | 77.7 / 22.0 | 67.2 / 31.7 | 98.2 / 1.8 |
+| 2000s | 92.8 / 6.0 | 73.7 / 24.1 | 82.1 / 16.9 | 83.1 / 16.6 | 71.9 / 27.6 | 98.3 / 1.7 |
+| 2010s | 91.5 / 6.3 | 87.5 / 9.1 | 88.0 / 10.1 | 93.6 / 4.8 | 69.6 / 28.8 | 98.7 / 1.3 |
+| 2020–24 | 96.8 / 1.9 | 95.1 / 3.4 | 95.4 / 1.9 | 96.7 / 1.9 | 92.0 / 7.1 | 99.4 / 0.6 |
+| **All decades** | **92.5 / 6.2** | **81.1 / 16.8** | **82.6 / 15.7** | **82.6 / 16.5** | **74.0 / 24.9** | **98.7 / 1.3** |
+| *Titles (n)* | *5,697* | *4,109* | *3,046* | *3,933* | *2,016* | *93,521* |
+
+Each cell is T1 / T2. The group is every title with that language, so the cell does not sum to 100%: the remainder is the rule-flagged titles (Section 5) and the 2 titles filled by hand (Telugu and Gujarati), which `final_v2` records as separate tiers. The 269 flagged titles stay in their language group by the label they had before the rule fired. On Table 2's basis, with the flagged titles counted as T1, the all-decades row would reproduce its language shares exactly (for example Hindi 93.8% / 6.2%, against 92.5% / 6.2% here); Telugu and Other each hold one more title here (3,046 and 93,521) because Table 2 counted the two hand-filled titles as unknown. Unknown titles have no language, so they cannot appear in this table: they are split only by akas evidence (Table 2c). The full long-format table (every year 1980–2024, every tier, with its denominator) is `results/match_rates_final_v2.csv`.
+
+**Table 2c.** Share of titles still unknown, by the `title.akas` evidence that made the title a candidate and by release decade.
+{: .caption }
+
+| Decade | `IN`-region evidence only: titles | Unknown | Focal-language alternate title: titles | Unknown |
+| :--- | ---: | ---: | ---: | ---: |
+| 1980s | 11,049 | 17.2% | 1,293 | 5.8% |
+| 1990s | 12,729 | 18.4% | 1,804 | 5.3% |
+| 2000s | 25,159 | 32.4% | 3,153 | 3.1% |
+| 2010s | 54,182 | 35.8% | 7,228 | 3.2% |
+| 2020–24 | 32,566 | 37.6% | 8,577 | 10.3% |
+| **All, 1980–2024** | **135,685** | **32.5%** | **22,055** | **6.3%** |
+
+The akas language is evidence, not the film's language: an alternate title in a language says that a release exists under that title, not that the film was made in it, and we never use it to set a label. The two groups partition the 157,740 candidates (135,685 + 22,055). Unknown is 45,418 titles here, 45,420 on Table 2's basis before the two hand corrections.
+
 **Why unknown titles stay in the graph.** A strict inner join on resolved titles would delete every edge contributed by the 45,420 unresolved titles, and with them the collaborations between actors whose only shared film is unresolved. Feedback on our proposal warned that this would fragment the collaboration network. We therefore use a left join: unresolved titles stay in the credit table with no language, so they supply ties but never a language event and never a source-language credit.
 
 **What `title.akas` can and cannot do.** It cannot give the original language: among the 429,302 titles with alternate titles, the original-title row carries neither a language nor a region in any case. We use it only to shortlist candidates and to flag possible dubs for review. The unknown share depends on this evidence: it is 32.5% of the 135,685 candidates whose only Indian evidence is an `IN`-region title, against 6.3% of the 22,055 with a focal-language alternate title.
@@ -195,6 +224,7 @@ Environment: Python 3.13.0, pandas 3.0.6. Table 10 lists the commands; Table 7 g
 | Rule evidence (TMDB, Wikidata, Wikipedia) | `cinema-mobility rules-fetch --wikipedia` |
 | Baseline and primary credits | `cinema-mobility apply-review --reviewed data/review/corrections_control.csv --credits data/processed/credits_final_v2.parquet --baseline data/processed/credits_pre_review.parquet --ambiguity-rules spoken_wiki,wikidata_focal,disagree` (omit the last flag and change `--credits` for `baseline`) |
 | Rule sensitivity; pair screen | `cinema-mobility rules-report --stage full`; `cinema-mobility select-pairs` |
+| Match rates by tier, year, decade, language, akas evidence (Tables 2b, 2c) | `python scripts/match_rates.py` (writes `results/match_rates_final_v2.csv`; refuses to overwrite) |
 | Quality report; version table | `cinema-mobility quality-report --end-year 2024`; `cinema-mobility data-versions` |
 
 **[TO CONFIRM: TA's answer on AI-assisted labelling and rule-based exclusion.]**
