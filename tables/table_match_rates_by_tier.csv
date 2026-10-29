@@ -1,0 +1,421 @@
+dimension,group,year_or_decade,tier,titles,share_of_group,group_titles
+year,all candidate titles,1980,T1,813,0.741788,1096
+year,all candidate titles,1980,T2,98,0.089416,1096
+year,all candidate titles,1980,reviewed,0,0.0,1096
+year,all candidate titles,1980,rule_ambiguous,6,0.005474,1096
+year,all candidate titles,1980,unknown,179,0.163321,1096
+year,all candidate titles,1981,T1,812,0.737511,1101
+year,all candidate titles,1981,T2,116,0.105359,1101
+year,all candidate titles,1981,reviewed,0,0.0,1101
+year,all candidate titles,1981,rule_ambiguous,3,0.002725,1101
+year,all candidate titles,1981,unknown,170,0.154405,1101
+year,all candidate titles,1982,T1,875,0.75889,1153
+year,all candidate titles,1982,T2,87,0.075455,1153
+year,all candidate titles,1982,reviewed,0,0.0,1153
+year,all candidate titles,1982,rule_ambiguous,2,0.001735,1153
+year,all candidate titles,1982,unknown,189,0.16392,1153
+year,all candidate titles,1983,T1,833,0.754529,1104
+year,all candidate titles,1983,T2,86,0.077899,1104
+year,all candidate titles,1983,reviewed,0,0.0,1104
+year,all candidate titles,1983,rule_ambiguous,1,0.000906,1104
+year,all candidate titles,1983,unknown,184,0.166667,1104
+year,all candidate titles,1984,T1,925,0.758197,1220
+year,all candidate titles,1984,T2,95,0.077869,1220
+year,all candidate titles,1984,reviewed,0,0.0,1220
+year,all candidate titles,1984,rule_ambiguous,1,0.00082,1220
+year,all candidate titles,1984,unknown,199,0.163115,1220
+year,all candidate titles,1985,T1,949,0.746069,1272
+year,all candidate titles,1985,T2,105,0.082547,1272
+year,all candidate titles,1985,reviewed,0,0.0,1272
+year,all candidate titles,1985,rule_ambiguous,4,0.003145,1272
+year,all candidate titles,1985,unknown,214,0.168239,1272
+year,all candidate titles,1986,T1,975,0.773196,1261
+year,all candidate titles,1986,T2,73,0.057891,1261
+year,all candidate titles,1986,reviewed,0,0.0,1261
+year,all candidate titles,1986,rule_ambiguous,4,0.003172,1261
+year,all candidate titles,1986,unknown,209,0.165741,1261
+year,all candidate titles,1987,T1,1027,0.771021,1332
+year,all candidate titles,1987,T2,107,0.08033,1332
+year,all candidate titles,1987,reviewed,0,0.0,1332
+year,all candidate titles,1987,rule_ambiguous,3,0.002252,1332
+year,all candidate titles,1987,unknown,195,0.146396,1332
+year,all candidate titles,1988,T1,1078,0.777217,1387
+year,all candidate titles,1988,T2,93,0.067051,1387
+year,all candidate titles,1988,reviewed,0,0.0,1387
+year,all candidate titles,1988,rule_ambiguous,2,0.001442,1387
+year,all candidate titles,1988,unknown,214,0.15429,1387
+year,all candidate titles,1989,T1,1099,0.77613,1416
+year,all candidate titles,1989,T2,92,0.064972,1416
+year,all candidate titles,1989,reviewed,0,0.0,1416
+year,all candidate titles,1989,rule_ambiguous,3,0.002119,1416
+year,all candidate titles,1989,unknown,222,0.15678,1416
+year,all candidate titles,1990,T1,1002,0.754518,1328
+year,all candidate titles,1990,T2,97,0.073042,1328
+year,all candidate titles,1990,reviewed,0,0.0,1328
+year,all candidate titles,1990,rule_ambiguous,1,0.000753,1328
+year,all candidate titles,1990,unknown,228,0.171687,1328
+year,all candidate titles,1991,T1,1021,0.774071,1319
+year,all candidate titles,1991,T2,87,0.065959,1319
+year,all candidate titles,1991,reviewed,0,0.0,1319
+year,all candidate titles,1991,rule_ambiguous,2,0.001516,1319
+year,all candidate titles,1991,unknown,209,0.158453,1319
+year,all candidate titles,1992,T1,988,0.733482,1347
+year,all candidate titles,1992,T2,108,0.080178,1347
+year,all candidate titles,1992,reviewed,0,0.0,1347
+year,all candidate titles,1992,rule_ambiguous,5,0.003712,1347
+year,all candidate titles,1992,unknown,246,0.182628,1347
+year,all candidate titles,1993,T1,996,0.787975,1264
+year,all candidate titles,1993,T2,71,0.056171,1264
+year,all candidate titles,1993,reviewed,0,0.0,1264
+year,all candidate titles,1993,rule_ambiguous,4,0.003165,1264
+year,all candidate titles,1993,unknown,193,0.15269,1264
+year,all candidate titles,1994,T1,1022,0.776596,1316
+year,all candidate titles,1994,T2,90,0.068389,1316
+year,all candidate titles,1994,reviewed,0,0.0,1316
+year,all candidate titles,1994,rule_ambiguous,2,0.00152,1316
+year,all candidate titles,1994,unknown,202,0.153495,1316
+year,all candidate titles,1995,T1,1126,0.774948,1453
+year,all candidate titles,1995,T2,76,0.052306,1453
+year,all candidate titles,1995,reviewed,0,0.0,1453
+year,all candidate titles,1995,rule_ambiguous,0,0.0,1453
+year,all candidate titles,1995,unknown,251,0.172746,1453
+year,all candidate titles,1996,T1,1116,0.794306,1405
+year,all candidate titles,1996,T2,61,0.043416,1405
+year,all candidate titles,1996,reviewed,0,0.0,1405
+year,all candidate titles,1996,rule_ambiguous,2,0.001423,1405
+year,all candidate titles,1996,unknown,226,0.160854,1405
+year,all candidate titles,1997,T1,1272,0.8,1590
+year,all candidate titles,1997,T2,67,0.042138,1590
+year,all candidate titles,1997,reviewed,0,0.0,1590
+year,all candidate titles,1997,rule_ambiguous,1,0.000629,1590
+year,all candidate titles,1997,unknown,250,0.157233,1590
+year,all candidate titles,1998,T1,1289,0.773709,1666
+year,all candidate titles,1998,T2,80,0.048019,1666
+year,all candidate titles,1998,reviewed,0,0.0,1666
+year,all candidate titles,1998,rule_ambiguous,1,0.0006,1666
+year,all candidate titles,1998,unknown,296,0.177671,1666
+year,all candidate titles,1999,T1,1423,0.771274,1845
+year,all candidate titles,1999,T2,78,0.042276,1845
+year,all candidate titles,1999,reviewed,0,0.0,1845
+year,all candidate titles,1999,rule_ambiguous,2,0.001084,1845
+year,all candidate titles,1999,unknown,342,0.185366,1845
+year,all candidate titles,2000,T1,1362,0.723314,1883
+year,all candidate titles,2000,T2,55,0.029209,1883
+year,all candidate titles,2000,reviewed,0,0.0,1883
+year,all candidate titles,2000,rule_ambiguous,3,0.001593,1883
+year,all candidate titles,2000,unknown,463,0.245884,1883
+year,all candidate titles,2001,T1,1464,0.704863,2077
+year,all candidate titles,2001,T2,76,0.036591,2077
+year,all candidate titles,2001,reviewed,0,0.0,2077
+year,all candidate titles,2001,rule_ambiguous,9,0.004333,2077
+year,all candidate titles,2001,unknown,528,0.254213,2077
+year,all candidate titles,2002,T1,1485,0.678392,2189
+year,all candidate titles,2002,T2,74,0.033805,2189
+year,all candidate titles,2002,reviewed,0,0.0,2189
+year,all candidate titles,2002,rule_ambiguous,3,0.00137,2189
+year,all candidate titles,2002,unknown,627,0.286432,2189
+year,all candidate titles,2003,T1,1640,0.691691,2371
+year,all candidate titles,2003,T2,77,0.032476,2371
+year,all candidate titles,2003,reviewed,0,0.0,2371
+year,all candidate titles,2003,rule_ambiguous,2,0.000844,2371
+year,all candidate titles,2003,unknown,652,0.274989,2371
+year,all candidate titles,2004,T1,1713,0.686573,2495
+year,all candidate titles,2004,T2,71,0.028457,2495
+year,all candidate titles,2004,reviewed,0,0.0,2495
+year,all candidate titles,2004,rule_ambiguous,2,0.000802,2495
+year,all candidate titles,2004,unknown,709,0.284168,2495
+year,all candidate titles,2005,T1,1883,0.652913,2884
+year,all candidate titles,2005,T2,93,0.032247,2884
+year,all candidate titles,2005,reviewed,0,0.0,2884
+year,all candidate titles,2005,rule_ambiguous,1,0.000347,2884
+year,all candidate titles,2005,unknown,907,0.314494,2884
+year,all candidate titles,2006,T1,2158,0.701332,3077
+year,all candidate titles,2006,T2,74,0.024049,3077
+year,all candidate titles,2006,reviewed,0,0.0,3077
+year,all candidate titles,2006,rule_ambiguous,4,0.0013,3077
+year,all candidate titles,2006,unknown,841,0.273318,3077
+year,all candidate titles,2007,T1,2195,0.667985,3286
+year,all candidate titles,2007,T2,100,0.030432,3286
+year,all candidate titles,2007,reviewed,0,0.0,3286
+year,all candidate titles,2007,rule_ambiguous,7,0.00213,3286
+year,all candidate titles,2007,unknown,984,0.299452,3286
+year,all candidate titles,2008,T1,2464,0.666486,3697
+year,all candidate titles,2008,T2,107,0.028942,3697
+year,all candidate titles,2008,reviewed,0,0.0,3697
+year,all candidate titles,2008,rule_ambiguous,6,0.001623,3697
+year,all candidate titles,2008,unknown,1120,0.302948,3697
+year,all candidate titles,2009,T1,2826,0.649207,4353
+year,all candidate titles,2009,T2,108,0.02481,4353
+year,all candidate titles,2009,reviewed,0,0.0,4353
+year,all candidate titles,2009,rule_ambiguous,4,0.000919,4353
+year,all candidate titles,2009,unknown,1415,0.325063,4353
+year,all candidate titles,2010,T1,2992,0.627648,4767
+year,all candidate titles,2010,T2,114,0.023914,4767
+year,all candidate titles,2010,reviewed,0,0.0,4767
+year,all candidate titles,2010,rule_ambiguous,11,0.002308,4767
+year,all candidate titles,2010,unknown,1650,0.34613,4767
+year,all candidate titles,2011,T1,3159,0.627533,5034
+year,all candidate titles,2011,T2,117,0.023242,5034
+year,all candidate titles,2011,reviewed,0,0.0,5034
+year,all candidate titles,2011,rule_ambiguous,8,0.001589,5034
+year,all candidate titles,2011,unknown,1750,0.347636,5034
+year,all candidate titles,2012,T1,3518,0.650879,5405
+year,all candidate titles,2012,T2,110,0.020352,5405
+year,all candidate titles,2012,reviewed,0,0.0,5405
+year,all candidate titles,2012,rule_ambiguous,13,0.002405,5405
+year,all candidate titles,2012,unknown,1764,0.326364,5405
+year,all candidate titles,2013,T1,3821,0.665216,5744
+year,all candidate titles,2013,T2,125,0.021762,5744
+year,all candidate titles,2013,reviewed,0,0.0,5744
+year,all candidate titles,2013,rule_ambiguous,11,0.001915,5744
+year,all candidate titles,2013,unknown,1787,0.311107,5744
+year,all candidate titles,2014,T1,3995,0.659241,6060
+year,all candidate titles,2014,T2,129,0.021287,6060
+year,all candidate titles,2014,reviewed,0,0.0,6060
+year,all candidate titles,2014,rule_ambiguous,11,0.001815,6060
+year,all candidate titles,2014,unknown,1925,0.317657,6060
+year,all candidate titles,2015,T1,4167,0.677671,6149
+year,all candidate titles,2015,T2,128,0.020816,6149
+year,all candidate titles,2015,reviewed,0,0.0,6149
+year,all candidate titles,2015,rule_ambiguous,16,0.002602,6149
+year,all candidate titles,2015,unknown,1838,0.29891,6149
+year,all candidate titles,2016,T1,4366,0.671176,6505
+year,all candidate titles,2016,T2,105,0.016141,6505
+year,all candidate titles,2016,reviewed,0,0.0,6505
+year,all candidate titles,2016,rule_ambiguous,17,0.002613,6505
+year,all candidate titles,2016,unknown,2017,0.310069,6505
+year,all candidate titles,2017,T1,4622,0.66734,6926
+year,all candidate titles,2017,T2,69,0.009962,6926
+year,all candidate titles,2017,reviewed,0,0.0,6926
+year,all candidate titles,2017,rule_ambiguous,20,0.002888,6926
+year,all candidate titles,2017,unknown,2215,0.319809,6926
+year,all candidate titles,2018,T1,4905,0.663376,7394
+year,all candidate titles,2018,T2,86,0.011631,7394
+year,all candidate titles,2018,reviewed,0,0.0,7394
+year,all candidate titles,2018,rule_ambiguous,10,0.001352,7394
+year,all candidate titles,2018,unknown,2393,0.323641,7394
+year,all candidate titles,2019,T1,5066,0.682198,7426
+year,all candidate titles,2019,T2,55,0.007406,7426
+year,all candidate titles,2019,reviewed,0,0.0,7426
+year,all candidate titles,2019,rule_ambiguous,6,0.000808,7426
+year,all candidate titles,2019,unknown,2299,0.309588,7426
+year,all candidate titles,2020,T1,4164,0.665176,6260
+year,all candidate titles,2020,T2,34,0.005431,6260
+year,all candidate titles,2020,reviewed,0,0.0,6260
+year,all candidate titles,2020,rule_ambiguous,6,0.000958,6260
+year,all candidate titles,2020,unknown,2056,0.328435,6260
+year,all candidate titles,2021,T1,4847,0.637428,7604
+year,all candidate titles,2021,T2,55,0.007233,7604
+year,all candidate titles,2021,reviewed,0,0.0,7604
+year,all candidate titles,2021,rule_ambiguous,7,0.000921,7604
+year,all candidate titles,2021,unknown,2695,0.354419,7604
+year,all candidate titles,2022,T1,5872,0.675253,8696
+year,all candidate titles,2022,T2,42,0.00483,8696
+year,all candidate titles,2022,reviewed,0,0.0,8696
+year,all candidate titles,2022,rule_ambiguous,16,0.00184,8696
+year,all candidate titles,2022,unknown,2766,0.318077,8696
+year,all candidate titles,2023,T1,6366,0.697033,9133
+year,all candidate titles,2023,T2,64,0.007008,9133
+year,all candidate titles,2023,reviewed,1,0.000109,9133
+year,all candidate titles,2023,rule_ambiguous,16,0.001752,9133
+year,all candidate titles,2023,unknown,2686,0.294098,9133
+year,all candidate titles,2024,T1,6487,0.686455,9450
+year,all candidate titles,2024,T2,38,0.004021,9450
+year,all candidate titles,2024,reviewed,1,0.000106,9450
+year,all candidate titles,2024,rule_ambiguous,11,0.001164,9450
+year,all candidate titles,2024,unknown,2913,0.308254,9450
+decade,all candidate titles,1980s,T1,9386,0.760493,12342
+decade,all candidate titles,1980s,T2,952,0.077135,12342
+decade,all candidate titles,1980s,reviewed,0,0.0,12342
+decade,all candidate titles,1980s,rule_ambiguous,29,0.00235,12342
+decade,all candidate titles,1980s,unknown,1975,0.160023,12342
+decade,all candidate titles,1990s,T1,11255,0.774444,14533
+decade,all candidate titles,1990s,T2,815,0.056079,14533
+decade,all candidate titles,1990s,reviewed,0,0.0,14533
+decade,all candidate titles,1990s,rule_ambiguous,20,0.001376,14533
+decade,all candidate titles,1990s,unknown,2443,0.1681,14533
+decade,all candidate titles,2000s,T1,19190,0.677804,28312
+decade,all candidate titles,2000s,T2,835,0.029493,28312
+decade,all candidate titles,2000s,reviewed,0,0.0,28312
+decade,all candidate titles,2000s,rule_ambiguous,41,0.001448,28312
+decade,all candidate titles,2000s,unknown,8246,0.291255,28312
+decade,all candidate titles,2010s,T1,40611,0.661309,61410
+decade,all candidate titles,2010s,T2,1038,0.016903,61410
+decade,all candidate titles,2010s,reviewed,0,0.0,61410
+decade,all candidate titles,2010s,rule_ambiguous,123,0.002003,61410
+decade,all candidate titles,2010s,unknown,19638,0.319785,61410
+decade,all candidate titles,2020-24,T1,27736,0.674137,41143
+decade,all candidate titles,2020-24,T2,233,0.005663,41143
+decade,all candidate titles,2020-24,reviewed,2,4.9e-05,41143
+decade,all candidate titles,2020-24,rule_ambiguous,56,0.001361,41143
+decade,all candidate titles,2020-24,unknown,13116,0.318791,41143
+language_x_decade,hi,1980s,T1,886,0.916236,967
+language_x_decade,hi,1980s,T2,75,0.077559,967
+language_x_decade,hi,1980s,reviewed,0,0.0,967
+language_x_decade,hi,1980s,rule_ambiguous,6,0.006205,967
+language_x_decade,hi,1990s,T1,885,0.905834,977
+language_x_decade,hi,1990s,T2,86,0.088025,977
+language_x_decade,hi,1990s,reviewed,0,0.0,977
+language_x_decade,hi,1990s,rule_ambiguous,6,0.006141,977
+language_x_decade,hi,2000s,T1,1039,0.927679,1120
+language_x_decade,hi,2000s,T2,67,0.059821,1120
+language_x_decade,hi,2000s,reviewed,0,0.0,1120
+language_x_decade,hi,2000s,rule_ambiguous,14,0.0125,1120
+language_x_decade,hi,2010s,T1,1515,0.915408,1655
+language_x_decade,hi,2010s,T2,104,0.06284,1655
+language_x_decade,hi,2010s,reviewed,0,0.0,1655
+language_x_decade,hi,2010s,rule_ambiguous,36,0.021752,1655
+language_x_decade,hi,2020-24,T1,947,0.968303,978
+language_x_decade,hi,2020-24,T2,19,0.019427,978
+language_x_decade,hi,2020-24,reviewed,0,0.0,978
+language_x_decade,hi,2020-24,rule_ambiguous,12,0.01227,978
+language_x_decade,kn,1980s,T1,200,0.719424,278
+language_x_decade,kn,1980s,T2,74,0.266187,278
+language_x_decade,kn,1980s,reviewed,0,0.0,278
+language_x_decade,kn,1980s,rule_ambiguous,4,0.014388,278
+language_x_decade,kn,1990s,T1,197,0.672355,293
+language_x_decade,kn,1990s,T2,93,0.317406,293
+language_x_decade,kn,1990s,reviewed,0,0.0,293
+language_x_decade,kn,1990s,rule_ambiguous,3,0.010239,293
+language_x_decade,kn,2000s,T1,284,0.718987,395
+language_x_decade,kn,2000s,T2,109,0.275949,395
+language_x_decade,kn,2000s,reviewed,0,0.0,395
+language_x_decade,kn,2000s,rule_ambiguous,2,0.005063,395
+language_x_decade,kn,2010s,T1,486,0.696275,698
+language_x_decade,kn,2010s,T2,201,0.287966,698
+language_x_decade,kn,2010s,reviewed,0,0.0,698
+language_x_decade,kn,2010s,rule_ambiguous,11,0.015759,698
+language_x_decade,kn,2020-24,T1,324,0.920455,352
+language_x_decade,kn,2020-24,T2,25,0.071023,352
+language_x_decade,kn,2020-24,reviewed,0,0.0,352
+language_x_decade,kn,2020-24,rule_ambiguous,3,0.008523,352
+language_x_decade,ml,1980s,T1,557,0.618202,901
+language_x_decade,ml,1980s,T2,341,0.378468,901
+language_x_decade,ml,1980s,reviewed,0,0.0,901
+language_x_decade,ml,1980s,rule_ambiguous,3,0.00333,901
+language_x_decade,ml,1990s,T1,529,0.776799,681
+language_x_decade,ml,1990s,T2,150,0.220264,681
+language_x_decade,ml,1990s,reviewed,0,0.0,681
+language_x_decade,ml,1990s,rule_ambiguous,2,0.002937,681
+language_x_decade,ml,2000s,T1,456,0.830601,549
+language_x_decade,ml,2000s,T2,91,0.165756,549
+language_x_decade,ml,2000s,reviewed,0,0.0,549
+language_x_decade,ml,2000s,rule_ambiguous,2,0.003643,549
+language_x_decade,ml,2010s,T1,1062,0.935683,1135
+language_x_decade,ml,2010s,T2,54,0.047577,1135
+language_x_decade,ml,2010s,reviewed,0,0.0,1135
+language_x_decade,ml,2010s,rule_ambiguous,19,0.01674,1135
+language_x_decade,ml,2020-24,T1,645,0.967016,667
+language_x_decade,ml,2020-24,T2,13,0.01949,667
+language_x_decade,ml,2020-24,reviewed,0,0.0,667
+language_x_decade,ml,2020-24,rule_ambiguous,9,0.013493,667
+language_x_decade,other,1980s,T1,6986,0.980216,7127
+language_x_decade,other,1980s,T2,141,0.019784,7127
+language_x_decade,other,1980s,reviewed,0,0.0,7127
+language_x_decade,other,1980s,rule_ambiguous,0,0.0,7127
+language_x_decade,other,1990s,T1,8878,0.982188,9039
+language_x_decade,other,1990s,T2,161,0.017812,9039
+language_x_decade,other,1990s,reviewed,0,0.0,9039
+language_x_decade,other,1990s,rule_ambiguous,0,0.0,9039
+language_x_decade,other,2000s,T1,16344,0.983216,16623
+language_x_decade,other,2000s,T2,279,0.016784,16623
+language_x_decade,other,2000s,reviewed,0,0.0,16623
+language_x_decade,other,2000s,rule_ambiguous,0,0.0,16623
+language_x_decade,other,2010s,T1,35771,0.986596,36257
+language_x_decade,other,2010s,T2,486,0.013404,36257
+language_x_decade,other,2010s,reviewed,0,0.0,36257
+language_x_decade,other,2010s,rule_ambiguous,0,0.0,36257
+language_x_decade,other,2020-24,T1,24339,0.994443,24475
+language_x_decade,other,2020-24,T2,135,0.005516,24475
+language_x_decade,other,2020-24,reviewed,1,4.1e-05,24475
+language_x_decade,other,2020-24,rule_ambiguous,0,0.0,24475
+language_x_decade,ta,1980s,T1,477,0.760766,627
+language_x_decade,ta,1980s,T2,138,0.220096,627
+language_x_decade,ta,1980s,reviewed,0,0.0,627
+language_x_decade,ta,1980s,rule_ambiguous,12,0.019139,627
+language_x_decade,ta,1990s,T1,465,0.666189,698
+language_x_decade,ta,1990s,T2,229,0.32808,698
+language_x_decade,ta,1990s,reviewed,0,0.0,698
+language_x_decade,ta,1990s,rule_ambiguous,4,0.005731,698
+language_x_decade,ta,2000s,T1,573,0.737452,777
+language_x_decade,ta,2000s,T2,187,0.240669,777
+language_x_decade,ta,2000s,reviewed,0,0.0,777
+language_x_decade,ta,2000s,rule_ambiguous,17,0.021879,777
+language_x_decade,ta,2010s,T1,1054,0.874689,1205
+language_x_decade,ta,2010s,T2,110,0.091286,1205
+language_x_decade,ta,2010s,reviewed,0,0.0,1205
+language_x_decade,ta,2010s,rule_ambiguous,41,0.034025,1205
+language_x_decade,ta,2020-24,T1,763,0.951372,802
+language_x_decade,ta,2020-24,T2,27,0.033666,802
+language_x_decade,ta,2020-24,reviewed,0,0.0,802
+language_x_decade,ta,2020-24,rule_ambiguous,12,0.014963,802
+language_x_decade,te,1980s,T1,280,0.599572,467
+language_x_decade,te,1980s,T2,183,0.391863,467
+language_x_decade,te,1980s,reviewed,0,0.0,467
+language_x_decade,te,1980s,rule_ambiguous,4,0.008565,467
+language_x_decade,te,1990s,T1,301,0.748756,402
+language_x_decade,te,1990s,T2,96,0.238806,402
+language_x_decade,te,1990s,reviewed,0,0.0,402
+language_x_decade,te,1990s,rule_ambiguous,5,0.012438,402
+language_x_decade,te,2000s,T1,494,0.820598,602
+language_x_decade,te,2000s,T2,102,0.169435,602
+language_x_decade,te,2000s,reviewed,0,0.0,602
+language_x_decade,te,2000s,rule_ambiguous,6,0.009967,602
+language_x_decade,te,2010s,T1,723,0.879562,822
+language_x_decade,te,2010s,T2,83,0.100973,822
+language_x_decade,te,2010s,reviewed,0,0.0,822
+language_x_decade,te,2010s,rule_ambiguous,16,0.019465,822
+language_x_decade,te,2020-24,T1,718,0.953519,753
+language_x_decade,te,2020-24,T2,14,0.018592,753
+language_x_decade,te,2020-24,reviewed,1,0.001328,753
+language_x_decade,te,2020-24,rule_ambiguous,20,0.02656,753
+akas_evidence_x_decade,IN_region_only,1980s,T1,8239,0.745678,11049
+akas_evidence_x_decade,IN_region_only,1980s,T2,896,0.081093,11049
+akas_evidence_x_decade,IN_region_only,1980s,reviewed,0,0.0,11049
+akas_evidence_x_decade,IN_region_only,1980s,rule_ambiguous,14,0.001267,11049
+akas_evidence_x_decade,IN_region_only,1980s,unknown,1900,0.171961,11049
+akas_evidence_x_decade,IN_region_only,1990s,T1,9606,0.754655,12729
+akas_evidence_x_decade,IN_region_only,1990s,T2,761,0.059785,12729
+akas_evidence_x_decade,IN_region_only,1990s,reviewed,0,0.0,12729
+akas_evidence_x_decade,IN_region_only,1990s,rule_ambiguous,15,0.001178,12729
+akas_evidence_x_decade,IN_region_only,1990s,unknown,2347,0.184382,12729
+akas_evidence_x_decade,IN_region_only,2000s,T1,16199,0.643865,25159
+akas_evidence_x_decade,IN_region_only,2000s,T2,788,0.031321,25159
+akas_evidence_x_decade,IN_region_only,2000s,reviewed,0,0.0,25159
+akas_evidence_x_decade,IN_region_only,2000s,rule_ambiguous,23,0.000914,25159
+akas_evidence_x_decade,IN_region_only,2000s,unknown,8149,0.3239,25159
+akas_evidence_x_decade,IN_region_only,2010s,T1,33760,0.623085,54182
+akas_evidence_x_decade,IN_region_only,2010s,T2,968,0.017866,54182
+akas_evidence_x_decade,IN_region_only,2010s,reviewed,0,0.0,54182
+akas_evidence_x_decade,IN_region_only,2010s,rule_ambiguous,45,0.000831,54182
+akas_evidence_x_decade,IN_region_only,2010s,unknown,19409,0.358219,54182
+akas_evidence_x_decade,IN_region_only,2020-24,T1,20186,0.619849,32566
+akas_evidence_x_decade,IN_region_only,2020-24,T2,144,0.004422,32566
+akas_evidence_x_decade,IN_region_only,2020-24,reviewed,0,0.0,32566
+akas_evidence_x_decade,IN_region_only,2020-24,rule_ambiguous,6,0.000184,32566
+akas_evidence_x_decade,IN_region_only,2020-24,unknown,12230,0.375545,32566
+akas_evidence_x_decade,focal_language_alt_title,1980s,T1,1147,0.887084,1293
+akas_evidence_x_decade,focal_language_alt_title,1980s,T2,56,0.04331,1293
+akas_evidence_x_decade,focal_language_alt_title,1980s,reviewed,0,0.0,1293
+akas_evidence_x_decade,focal_language_alt_title,1980s,rule_ambiguous,15,0.011601,1293
+akas_evidence_x_decade,focal_language_alt_title,1980s,unknown,75,0.058005,1293
+akas_evidence_x_decade,focal_language_alt_title,1990s,T1,1649,0.91408,1804
+akas_evidence_x_decade,focal_language_alt_title,1990s,T2,54,0.029933,1804
+akas_evidence_x_decade,focal_language_alt_title,1990s,reviewed,0,0.0,1804
+akas_evidence_x_decade,focal_language_alt_title,1990s,rule_ambiguous,5,0.002772,1804
+akas_evidence_x_decade,focal_language_alt_title,1990s,unknown,96,0.053215,1804
+akas_evidence_x_decade,focal_language_alt_title,2000s,T1,2991,0.94862,3153
+akas_evidence_x_decade,focal_language_alt_title,2000s,T2,47,0.014906,3153
+akas_evidence_x_decade,focal_language_alt_title,2000s,reviewed,0,0.0,3153
+akas_evidence_x_decade,focal_language_alt_title,2000s,rule_ambiguous,18,0.005709,3153
+akas_evidence_x_decade,focal_language_alt_title,2000s,unknown,97,0.030764,3153
+akas_evidence_x_decade,focal_language_alt_title,2010s,T1,6851,0.947842,7228
+akas_evidence_x_decade,focal_language_alt_title,2010s,T2,70,0.009685,7228
+akas_evidence_x_decade,focal_language_alt_title,2010s,reviewed,0,0.0,7228
+akas_evidence_x_decade,focal_language_alt_title,2010s,rule_ambiguous,78,0.010791,7228
+akas_evidence_x_decade,focal_language_alt_title,2010s,unknown,229,0.031682,7228
+akas_evidence_x_decade,focal_language_alt_title,2020-24,T1,7550,0.880261,8577
+akas_evidence_x_decade,focal_language_alt_title,2020-24,T2,89,0.010377,8577
+akas_evidence_x_decade,focal_language_alt_title,2020-24,reviewed,2,0.000233,8577
+akas_evidence_x_decade,focal_language_alt_title,2020-24,rule_ambiguous,50,0.00583,8577
+akas_evidence_x_decade,focal_language_alt_title,2020-24,unknown,886,0.1033,8577
